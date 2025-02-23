@@ -1,7 +1,5 @@
 // app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
-import { shouldUseAuth } from "@/lib/shouldUseAuth";
 import { GEMINI_MODEL } from "@/ai/models";
 import { createClient } from "@/ai/client";
 import { systemPrompt } from "@/ai/prompt";
@@ -14,13 +12,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No prompt provided" }, { status: 400 });
     }
 
-    // If authentication is enabled, check the current user.
-    if (shouldUseAuth) {
-      const user = await currentUser();
-      if (!user) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    }
 
     // Combine prompt and context if context exists.
     const fullPrompt = context ? `${prompt}\nContext:\n${context}` : prompt;

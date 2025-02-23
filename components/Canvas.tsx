@@ -1,7 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import {
+  Tldraw,
   DefaultKeyboardShortcutsDialog,
   DefaultKeyboardShortcutsDialogContent,
   DefaultToolbar,
@@ -13,14 +13,16 @@ import {
   useIsToolSelected,
   useTools,
   useEditor,
+  loadSnapshot,
 } from "tldraw";
 import "tldraw/tldraw.css";
 import { chatTool } from "@/tools/ChatTool";
 import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
 import { useEffect } from "react";
 import { snapshot } from "@/lib/snapshot";
-import { loadSnapshot } from "tldraw";
 import { ChatShape } from "@/components/chatshape/ChatShapeTypes";
+import { SignOutButton } from "@clerk/nextjs";
+import { Button } from "./ui/button";
 
 // [1] UI overrides: add the custom chat tool using a string key for the icon.
 const uiOverrides: TLUiOverrides = {
@@ -30,9 +32,7 @@ const uiOverrides: TLUiOverrides = {
       icon: "chat-icon", // Use a string key for your asset
       label: "Chat",
       kbd: "c",
-      onSelect: () => {
-        editor.setCurrentTool("chat");
-      },
+      onSelect: () => editor.setCurrentTool("chat"),
     };
     return tools;
   },
@@ -59,6 +59,10 @@ const components: TLComponents = {
       </DefaultKeyboardShortcutsDialog>
     );
   },
+  // Let Tldraw render its default StylePanel
+  PageMenu: null,
+  MainMenu: null,
+  DebugPanel: null,
 };
 
 // [3] Custom asset URLs: point the chat-icon key to /BranchBox.svg
@@ -71,15 +75,10 @@ const customAssetUrls: TLUiAssetUrlOverrides = {
 // [4] Register your custom tool.
 const customTools = [chatTool];
 
-// Dynamically import Tldraw to disable SSR.
-const TldrawDynamic = dynamic(async () => (await import("tldraw")).Tldraw, {
-  ssr: false,
-});
-
 export function Canvas() {
   return (
     <div style={{ position: "fixed", inset: 0 }}>
-      <TldrawDynamic
+      <Tldraw
         persistenceKey="tlweb"
         shapeUtils={[ChatShapeUtil]}
         hideUi={false}
@@ -91,7 +90,6 @@ export function Canvas() {
         onMount={(editor) => {
           editor.sideEffects.registerBeforeChangeHandler("shape", (prev, next) => {
             if (prev.type === "chat" && next.type === "chat") {
-              // Cast next to ChatShape, and then its props to an object with w and h.
               const chatNext = next as ChatShape;
               const { w, h } = chatNext.props as { w: number; h: number };
               const MIN_WIDTH = 190;
@@ -102,16 +100,34 @@ export function Canvas() {
             }
             return next;
           });
-                  }}
-
+        }}
       >
+        {/* SnapshotLoader uses useEditor inside the Tldraw context */}
         <SnapshotLoader />
-      </TldrawDynamic>
+      </Tldraw>
+      {/* Sign-out button overlay */}
+      <div
+        className="absolute top-1 right-1 flex gap-1"
+        style={{ zIndex: 2000 }}
+      >
+        <SignOutButton>
+          <Button size="sm" variant="default">
+            Sign Out
+          </Button>
+        </SignOutButton>
+      </div>
+      {/* Global style override to move the style panel down */}
+      <style jsx global>{`
+        .tldraw-style-panel,
+        .tlui-style-panel {
+          top: 35px !important;
+        }
+      `}</style>
     </div>
   );
 }
 
-// ✅ Ensure the snapshot loads
+// SnapshotLoader is rendered inside Tldraw so useEditor() works here.
 function SnapshotLoader() {
   const editor = useEditor();
 
@@ -121,5 +137,5 @@ function SnapshotLoader() {
     }
   }, [editor]);
 
-  return null; // No UI elements needed
+  return null;
 }

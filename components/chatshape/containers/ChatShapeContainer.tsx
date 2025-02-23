@@ -23,9 +23,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   // Use the modular hook to manage prompt area resizing
   // e.g. default to 100px prompt, min of 60
   const { promptHeight, handleDividerMouseDown } = usePromptResize({
-    initialHeight: 100,
+    initialHeight: 40,
     totalHeight,
-    minHeight: 60,
+    minHeight: 40,
     // If you want a max: maxHeight: 300,
   })
 
