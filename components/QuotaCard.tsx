@@ -1,15 +1,23 @@
 // QuotaCard.tsx
 import React from "react";
-import { useQuota } from "./hooks/useQuota";
+import { useQuota, QuotaData } from "./hooks/useQuota";
 
 export function QuotaCard() {
   const { quota, isLoading, error } = useQuota();
 
-  if (isLoading) return <div>Loading quota...</div>;
-  if (error) return <div style={{ color: "red" }}>{error}</div>;
-  if (!quota) return <div>No quota data available.</div>;
+  // If there's an error and no quota data, show the error.
+  if (error && !quota) {
+    return <div style={{ color: "red" }}>{error}</div>;
+  }
 
-  const { count, limit } = quota;
+  // If no quota data yet, show loading.
+  if (!quota) {
+    return <div>Loading quota...</div>;
+  }
+
+  // Otherwise, always display the quota card using the last known quota.
+  const displayQuota: QuotaData = quota;
+  const { count, limit } = displayQuota;
   const percentage = Math.min((count / limit) * 100, 100);
 
   return (
@@ -22,7 +30,7 @@ export function QuotaCard() {
         borderRadius: "8px",
         boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
         padding: "8px 16px",
-        minWidth: "200px",
+        maxWidth: "300px",
       }}
     >
       <div
