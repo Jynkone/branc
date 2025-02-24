@@ -10,7 +10,7 @@ const fontSans = FontSans({
 });
 
 export const metadata: Metadata = {
-  title: "tlbranch",
+  title: "branc",
   description: "Track conversations with AI better",
 };
 

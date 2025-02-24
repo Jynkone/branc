@@ -63,7 +63,7 @@ export const ChatShapeContent: React.FC<ChatShapeContentProps> = ({
           style={{
             position: "absolute",
             bottom: "15px",
-            right: "15px",
+            right: "18px",
             cursor: "pointer",
             opacity: 0.7,
             display: "flex",

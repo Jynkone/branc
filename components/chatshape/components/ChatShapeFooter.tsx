@@ -1,4 +1,3 @@
-// chatshape/components/ChatShapeFooter.tsx
 import React from 'react'
 import { Button } from '../../ui/button'
 import { Play } from 'lucide-react'
@@ -16,6 +15,11 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      // If nothing is typed, do nothing
+      if (!prompt.trim()) {
+        e.preventDefault()
+        return
+      }
       e.preventDefault()
       onSend()
     }
@@ -26,11 +30,11 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'row',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         gap: '8px',
-        /* Add horizontal padding on left & right to move input away from borders */
-        padding: '8px 16px ',
+        padding: '8px 16px',
         boxSizing: 'border-box',
+        height: '100%',
       }}
     >
       <textarea
@@ -40,13 +44,14 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
         placeholder="How can I help?"
         style={{
           flex: 1,
+          height: '100%',
           backgroundColor: 'transparent',
           border: 'none',
           outline: 'none',
           resize: 'none',
           minHeight: '40px',
-          maxHeight: '200px',
           overflowY: 'auto',
+          paddingTop: '11px',
         }}
       />
       <Button
@@ -54,9 +59,14 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
         variant="ghost"
         size="sm"
         onMouseDown={(e) => {
+          if (!prompt.trim()) {
+            e.preventDefault()
+            return
+          }
           e.preventDefault()
           onSend()
         }}
+        disabled={!prompt.trim()}
       >
         <Play className="w-4 h-4" />
       </Button>

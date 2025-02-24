@@ -12,17 +12,15 @@ import {
   TldrawUiMenuItem,
   useIsToolSelected,
   useTools,
-  useEditor,
-  loadSnapshot,
 } from "tldraw";
 import "tldraw/tldraw.css";
 import { chatTool } from "@/tools/ChatTool";
 import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
-import { useEffect } from "react";
-import { snapshot } from "@/lib/snapshot";
-import { ChatShape } from "@/components/chatshape/ChatShapeTypes";
 import { SignOutButton } from "@clerk/nextjs";
 import { Button } from "./ui/button";
+
+// Import the QuotaCard
+import { QuotaCard } from "@/components/QuotaCard";
 
 // [1] UI overrides: add the custom chat tool using a string key for the icon.
 const uiOverrides: TLUiOverrides = {
@@ -78,8 +76,21 @@ const customTools = [chatTool];
 export function Canvas() {
   return (
     <div style={{ position: "fixed", inset: 0 }}>
+      {/* Render QuotaCard at the top center */}
+      <div
+        style={{
+          position: "absolute",
+          top: 10,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 3000,
+        }}
+      >
+        <QuotaCard />
+      </div>
+
       <Tldraw
-        persistenceKey="tlweb"
+        persistenceKey="tlweb1"
         shapeUtils={[ChatShapeUtil]}
         hideUi={false}
         tools={customTools}
@@ -87,24 +98,9 @@ export function Canvas() {
         overrides={uiOverrides}
         components={components}
         assetUrls={customAssetUrls}
-        onMount={(editor) => {
-          editor.sideEffects.registerBeforeChangeHandler("shape", (prev, next) => {
-            if (prev.type === "chat" && next.type === "chat") {
-              const chatNext = next as ChatShape;
-              const { w, h } = chatNext.props as { w: number; h: number };
-              const MIN_WIDTH = 190;
-              const MIN_HEIGHT = 150;
-              if (w < MIN_WIDTH || h < MIN_HEIGHT) {
-                return prev;
-              }
-            }
-            return next;
-          });
-        }}
       >
-        {/* SnapshotLoader uses useEditor inside the Tldraw context */}
-        <SnapshotLoader />
       </Tldraw>
+
       {/* Sign-out button overlay */}
       <div
         className="absolute top-1 right-1 flex gap-1"
@@ -116,6 +112,7 @@ export function Canvas() {
           </Button>
         </SignOutButton>
       </div>
+
       {/* Global style override to move the style panel down */}
       <style jsx global>{`
         .tldraw-style-panel,
@@ -125,17 +122,4 @@ export function Canvas() {
       `}</style>
     </div>
   );
-}
-
-// SnapshotLoader is rendered inside Tldraw so useEditor() works here.
-function SnapshotLoader() {
-  const editor = useEditor();
-
-  useEffect(() => {
-    if (editor && editor.store && editor.getCurrentPageShapeIds().size === 0) {
-      loadSnapshot(editor.store, snapshot);
-    }
-  }, [editor]);
-
-  return null;
 }

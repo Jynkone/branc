@@ -69,10 +69,56 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   }
 
-  function handleContextSend(e: React.MouseEvent) {
+  // Updated handleContextSend to send the prompt and AI response combined as context
+  async function handleContextSend(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    // ...
+    setIsLoading(true)
+    console.log('Context Button Clicked!');
+    console.log('localPrompt:', localPrompt);
+    console.log('localResponse:', localResponse);
+    
+    const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0
+    ChatShapeContainer.layoutTree.set(shape.id, childCount + 1)
+
+    // Define a helper to mimic fan-out offset (similar to the mega file)
+    const getFanOffset = (childIndex: number, spacing = 120) => {
+      if (childIndex === 0) return 0
+      const n = Math.ceil(childIndex / 2)
+      const sign = childIndex % 2 === 1 ? -1 : 1
+      return sign * n * spacing
+    }
+
+    const newX = shape.x + shape.props.w + 200
+    const newY = shape.y + getFanOffset(childCount, 120)
+    // Use the current AI response as context
+    const context = localResponse
+
+    try {
+      const aiResponse = await getChatResponse(localPrompt, context)
+      const newShapeId = makeShapeID()
+      editor.createShape({
+        id: newShapeId,
+        type: "chat",
+        x: newX,
+        y: newY,
+        props: {
+          prompt: "",
+          response: aiResponse,
+          branchType: "context",
+          w: shape.props.w,
+          h: shape.props.h,
+          dateCreated: Date.now(),
+          color: shape.props.color,
+          dash: shape.props.dash,
+        },
+      })
+      connectShapes(editor, shape.id, newShapeId)
+    } catch (err) {
+      console.error("Error re-sending context:", err)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   function handleEditMouseDown(e: React.MouseEvent) {

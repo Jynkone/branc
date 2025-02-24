@@ -46,6 +46,9 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
         height: '100%',  // Let this container fill its parent
         display: 'flex',
         flexDirection: 'column',
+        backgroundColor: '#F9FAFB', // Match chatshape color
+
+        
       }}
     >
       <Editor
