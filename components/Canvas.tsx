@@ -19,15 +19,14 @@ import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
 import { SignOutButton } from "@clerk/nextjs";
 import { Button } from "./ui/button";
 
-// Import the QuotaCard
+// Import the unified QuotaCard component
 import { QuotaCard } from "@/components/QuotaCard";
 
-// [1] UI overrides: add the custom chat tool using a string key for the icon.
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
     tools.chat = {
       id: "chat",
-      icon: "chat-icon", // Use a string key for your asset
+      icon: "chat-icon",
       label: "Chat",
       kbd: "c",
       onSelect: () => editor.setCurrentTool("chat"),
@@ -36,7 +35,6 @@ const uiOverrides: TLUiOverrides = {
   },
 };
 
-// [2] Components overrides: insert your chat tool’s menu item into the default Toolbar and KeyboardShortcutsDialog.
 const components: TLComponents = {
   Toolbar: (props) => {
     const tools = useTools();
@@ -57,26 +55,23 @@ const components: TLComponents = {
       </DefaultKeyboardShortcutsDialog>
     );
   },
-  // Let Tldraw render its default StylePanel
   PageMenu: null,
   MainMenu: null,
   DebugPanel: null,
 };
 
-// [3] Custom asset URLs: point the chat-icon key to /BranchBox.svg
 const customAssetUrls: TLUiAssetUrlOverrides = {
   icons: {
     "chat-icon": "/BranchBox.svg",
   },
 };
 
-// [4] Register your custom tool.
 const customTools = [chatTool];
 
 export function Canvas() {
   return (
     <div style={{ position: "fixed", inset: 0 }}>
-      {/* Render QuotaCard at the top center */}
+      {/* QuotaCard at the Top Center */}
       <div
         style={{
           position: "absolute",
@@ -98,14 +93,9 @@ export function Canvas() {
         overrides={uiOverrides}
         components={components}
         assetUrls={customAssetUrls}
-      >
-      </Tldraw>
+      ></Tldraw>
 
-      {/* Sign-out button overlay */}
-      <div
-        className="absolute top-1 right-1 flex gap-1"
-        style={{ zIndex: 2000 }}
-      >
+      <div className="absolute top-1 right-1 flex gap-1" style={{ zIndex: 2000 }}>
         <SignOutButton>
           <Button size="sm" variant="default">
             Sign Out
@@ -113,7 +103,6 @@ export function Canvas() {
         </SignOutButton>
       </div>
 
-      {/* Global style override to move the style panel down */}
       <style jsx global>{`
         .tldraw-style-panel,
         .tlui-style-panel {
