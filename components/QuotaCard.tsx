@@ -5,17 +5,16 @@ import { useQuota, QuotaData } from "./hooks/useQuota";
 export function QuotaCard() {
   const { quota, isLoading, error } = useQuota();
 
-  // If there's an error and no quota data, show the error.
+  // If there's an error and no quota data, show error.
   if (error && !quota) {
     return <div style={{ color: "red" }}>{error}</div>;
   }
-
-  // If no quota data yet, show loading.
+  // If no quota data at all, show loading (only on initial load)
   if (!quota) {
     return <div>Loading quota...</div>;
   }
 
-  // Otherwise, always display the quota card using the last known quota.
+  // Once quota is available, always display it regardless of isLoading.
   const displayQuota: QuotaData = quota;
   const { count, limit } = displayQuota;
   const percentage = Math.min((count / limit) * 100, 100);
