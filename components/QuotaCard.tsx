@@ -30,7 +30,7 @@ export function QuotaCard() {
         borderRadius: "8px",
         boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
         padding: "8px 16px",
-        maxWidth: "300px",
+        minWidth: "200px",
       }}
     >
       <div
