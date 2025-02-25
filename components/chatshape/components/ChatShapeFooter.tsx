@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef, useEffect } from 'react'
 import { Button } from '../../ui/button'
 import { Play } from 'lucide-react'
 
@@ -13,6 +13,15 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
   onChange,
   onSend,
 }) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Force the textarea to update with the external prompt value
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.value = prompt;
+    }
+  }, [prompt]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       // If nothing is typed, do nothing
@@ -38,6 +47,7 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
       }}
     >
       <textarea
+        ref={textareaRef}
         value={prompt}
         onChange={onChange}
         onKeyDown={handleKeyDown}

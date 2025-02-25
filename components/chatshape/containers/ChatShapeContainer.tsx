@@ -143,33 +143,33 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   }
 
   // Modified to sync in real-time on every keystroke
-  function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const newPrompt = e.target.value;
-    setLocalPrompt(newPrompt);
-    
-    // Use a transaction to ensure proper sync
-    editor.batch(() => {
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: { ...shape.props, prompt: newPrompt },
-      });
-    });
-  }
+// In ChatShapeContainer.tsx
+function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+  const newPrompt = e.target.value;
+  setLocalPrompt(newPrompt);
   
-  function handleResponseUpdate(newText: string) {
-    setLocalResponse(newText);
-    
-    // Use a transaction to ensure proper sync
-    editor.batch(() => {
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: { ...shape.props, response: newText },
-      });
+  // Use a transaction to ensure proper sync
+  editor.batch(() => {
+    editor.updateShape({
+      id: shape.id,
+      type: "chat",
+      props: { ...shape.props, prompt: newPrompt },
     });
-  }
+  });
+}
+
+function handleResponseUpdate(newText: string) {
+  setLocalResponse(newText);
   
+  // Use a transaction to ensure proper sync
+  editor.batch(() => {
+    editor.updateShape({
+      id: shape.id,
+      type: "chat",
+      props: { ...shape.props, response: newText },
+    });
+  });
+}  
   
   return (
     <ChatShapeView
