@@ -147,26 +147,30 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const newPrompt = e.target.value;
     setLocalPrompt(newPrompt);
     
-    // Update the shape immediately to trigger real-time sync
-    editor.updateShape({
-      id: shape.id,
-      type: "chat",
-      props: { ...shape.props, prompt: newPrompt },
+    // Use a transaction to ensure proper sync
+    editor.batch(() => {
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: { ...shape.props, prompt: newPrompt },
+      });
     });
   }
-
-  // Modified to sync in real-time on every keystroke
+  
   function handleResponseUpdate(newText: string) {
     setLocalResponse(newText);
     
-    // Always update immediately, not just when editing
-    editor.updateShape({
-      id: shape.id,
-      type: "chat",
-      props: { ...shape.props, response: newText },
+    // Use a transaction to ensure proper sync
+    editor.batch(() => {
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: { ...shape.props, response: newText },
+      });
     });
   }
-
+  
+  
   return (
     <ChatShapeView
       shape={shape}
