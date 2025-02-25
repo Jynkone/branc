@@ -7,7 +7,7 @@ import { getBranchOffset } from "../utils/mathHelpers";
 import { makeShapeID } from "@/lib/makeShapeID";
 import { connectShapes } from "@/lib/connectShapes";
 import { ChatShapeView } from "./ChatShapeView";
-import { useQuota } from "@/components/hooks/useQuota";  // Updated import
+import { useQuota } from "@/components/hooks/useQuota";
 
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
   const { getChatResponse } = useChatAPI();
@@ -79,9 +79,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     e.preventDefault();
     e.stopPropagation();
     setIsLoading(true);
-    console.log('Context Button Clicked!');
-    console.log('localPrompt:', localPrompt);
-    console.log('localResponse:', localResponse);
     
     const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
     ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
@@ -143,17 +140,31 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     });
   }
 
+  // Modified to sync in real-time on every keystroke
   function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    setLocalPrompt(e.target.value);
+    const newPrompt = e.target.value;
+    setLocalPrompt(newPrompt);
+    
+    // Update the shape immediately to trigger real-time sync
     editor.updateShape({
       id: shape.id,
       type: "chat",
-      props: { ...shape.props, prompt: e.target.value },
+      props: { ...shape.props, prompt: newPrompt },
     });
   }
 
+  // Modified to sync in real-time on every keystroke
   function handleResponseUpdate(newText: string) {
     setLocalResponse(newText);
+    
+    // Only immediately update if editing
+    if (isEditingResponse) {
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: { ...shape.props, response: newText },
+      });
+    }
   }
 
   return (

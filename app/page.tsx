@@ -12,6 +12,11 @@ export default async function Home() {
     if (!user) {
       redirect("/sign-in");
     }
+    
+    // Return Canvas with the userId
+    return <Canvas userId={user.id} />;
   }
-  return <Canvas />;
+  
+  // If auth is disabled, use a placeholder userId
+  return <Canvas userId="anonymous-user" />;
 }

@@ -16,6 +16,7 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
 }) => {
   const editorRef = useRef<Editor>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef(initialValue);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -32,9 +33,28 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
     };
   }, [onBlur]);
 
+  // Set up a polling mechanism for content changes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const instance = editorRef.current?.getInstance();
+      if (!instance) return;
+      
+      const currentContent = instance.getMarkdown() || '';
+      if (currentContent !== contentRef.current) {
+        contentRef.current = currentContent;
+        onChange(currentContent);
+      }
+    }, 300); // Poll every 300ms
+    
+    return () => {
+      clearInterval(interval);
+    };
+  }, [onChange]);
+
   const handleChange = () => {
     const instance = editorRef.current?.getInstance();
     const content = instance?.getMarkdown() || '';
+    contentRef.current = content;
     onChange(content);
   };
 
@@ -43,12 +63,10 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
       ref={containerRef}
       style={{
         width: '100%',
-        height: '100%',  // Let this container fill its parent
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: '#F9FAFB', // Match chatshape color
-
-        
+        backgroundColor: '#F9FAFB',
       }}
     >
       <Editor
@@ -56,8 +74,8 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
         initialValue={initialValue}
         initialEditType="wysiwyg"
         previewStyle="vertical"
-        height="100%"       // Make the editor itself fill the container
-        hideModeSwitch={true}  // <--- This hides the tabs
+        height="100%"
+        hideModeSwitch={true}
         usageStatistics={false}
         onChange={handleChange}
       />
