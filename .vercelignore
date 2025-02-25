@@ -1,0 +1,3 @@
+# Ignore Cloudflare Worker files during Vercel build
+worker/
+wrangler.toml
