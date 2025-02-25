@@ -15,7 +15,7 @@ import {
   defaultShapeUtils,
 } from "tldraw";
 import { useSync } from '@tldraw/sync';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import "tldraw/tldraw.css";
 import { chatTool } from "@/tools/ChatTool";
 import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
@@ -28,6 +28,7 @@ import { Label } from "./ui/label";
 import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Pencil } from "lucide-react";
 
 // Import the unified QuotaCard component
 import { QuotaCard } from "@/components/QuotaCard";
@@ -126,53 +127,20 @@ export function Canvas({ userId }: { userId: string }) {
   // State for dialogs
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [isNewBoardDialogOpen, setIsNewBoardDialogOpen] = useState(false);
+  const [isRenamingBoard, setIsRenamingBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState('New Board');
   const [shareLink, setShareLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
+  
+  // Ref for the rename input
+  const renameInputRef = useRef<HTMLInputElement>(null);
   
   // Effect to initialize rooms
   useEffect(() => {
     if (!userId) return;
     
-    // If we have a shared board ID in the URL, prioritize that
-    if (sharedBoardId) {
-      // Check if we already know about this board
-      const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
-      let storedBoards: RoomData[] = [];
-      
-      if (storedBoardsStr) {
-        try {
-          storedBoards = JSON.parse(storedBoardsStr);
-        } catch (err) {
-          console.error("Error parsing stored boards:", err);
-        }
-      }
-      
-      // Check if this shared board is already known
-      const existingBoard = storedBoards.find(board => board.id === sharedBoardId);
-      
-      if (existingBoard) {
-        // We already know about this board
-        setCurrentRoom(existingBoard);
-        setAvailableRooms(storedBoards);
-      } else {
-        // This is a new shared board to us
-        const newSharedBoard: RoomData = {
-          id: sharedBoardId,
-          name: `Shared Board`,
-          isShared: true,
-          owner: 'unknown', // We don't know who the owner is
-          createdAt: Date.now(),
-        };
-        
-        const updatedBoards = [...storedBoards, newSharedBoard];
-        localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedBoards));
-        
-        setCurrentRoom(newSharedBoard);
-        setAvailableRooms(updatedBoards);
-      }
-    } else {
-      // No shared board ID in URL, load user's boards
+    // Handle initialization
+    const initializeRooms = async () => {
       const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
       let storedBoards: RoomData[] = [];
       
@@ -186,11 +154,11 @@ export function Canvas({ userId }: { userId: string }) {
       
       // Check if default board exists
       const defaultBoardId = getDefaultBoardId(userId);
-      const defaultBoard = storedBoards.find(board => board.id === defaultBoardId);
+      let defaultBoard = storedBoards.find(board => board.id === defaultBoardId);
       
       if (!defaultBoard) {
         // Create the default board if it doesn't exist
-        const newDefaultBoard: RoomData = {
+        defaultBoard = {
           id: defaultBoardId,
           name: "My First Board",
           isShared: false,
@@ -198,13 +166,41 @@ export function Canvas({ userId }: { userId: string }) {
           createdAt: Date.now(),
         };
         
-        storedBoards.push(newDefaultBoard);
+        storedBoards.push(defaultBoard);
         localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
       }
       
-      setAvailableRooms(storedBoards);
-      setCurrentRoom(defaultBoard || storedBoards[0] || null);
-    }
+      // If we have a shared board ID in the URL, prioritize that
+      if (sharedBoardId) {
+        // Check if we already know about this board
+        let sharedBoard = storedBoards.find(board => board.id === sharedBoardId);
+        
+        if (!sharedBoard) {
+          // This is a new shared board to us
+          sharedBoard = {
+            id: sharedBoardId,
+            name: `Shared Board`,
+            isShared: true,
+            owner: 'unknown', // We don't know who the owner is
+            createdAt: Date.now(),
+          };
+          
+          storedBoards.push(sharedBoard);
+          localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
+        }
+        
+        setAvailableRooms(storedBoards);
+        setCurrentRoom(sharedBoard);
+        console.log("Setting shared board as current:", sharedBoard);
+      } else {
+        // No shared board ID in URL, use default
+        setAvailableRooms(storedBoards);
+        setCurrentRoom(defaultBoard);
+        console.log("Setting default board as current:", defaultBoard);
+      }
+    };
+    
+    initializeRooms();
   }, [userId, sharedBoardId]);
   
   // Function to handle room change
@@ -242,9 +238,55 @@ export function Canvas({ userId }: { userId: string }) {
     router.push(`/?board=${newBoard.id}`);
   };
   
+  // Function to handle renaming a board
+  const handleRenameBoard = () => {
+    if (!currentRoom || !newBoardName.trim()) {
+      setIsRenamingBoard(false);
+      return;
+    }
+    
+    const updatedRoom = { ...currentRoom, name: newBoardName };
+    const updatedRooms = availableRooms.map(room => 
+      room.id === currentRoom.id ? updatedRoom : room
+    );
+    
+    localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
+    setAvailableRooms(updatedRooms);
+    setCurrentRoom(updatedRoom);
+    setIsRenamingBoard(false);
+  };
+  
+  // Focus the rename input when it becomes visible
+  useEffect(() => {
+    if (isRenamingBoard && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [isRenamingBoard]);
+  
+  // Start renaming with current board name
+  const startRenaming = () => {
+    if (currentRoom) {
+      setNewBoardName(currentRoom.name);
+      setIsRenamingBoard(true);
+    }
+  };
+  
   // Function to generate and show share link
   const handleShareBoard = () => {
     if (!currentRoom) return;
+    
+    // Always ensure the board is marked as shared
+    if (!currentRoom.isShared) {
+      const updatedRoom = { ...currentRoom, isShared: true };
+      const updatedRooms = availableRooms.map(room => 
+        room.id === currentRoom.id ? updatedRoom : room
+      );
+      
+      localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
+      setAvailableRooms(updatedRooms);
+      setCurrentRoom(updatedRoom);
+    }
     
     // Generate a shareable link for the current board
     const link = `${window.location.origin}/?board=${currentRoom.id}`;
@@ -294,7 +336,7 @@ export function Canvas({ userId }: { userId: string }) {
         <QuotaCard />
       </div>
 
-      {/* Board selector and controls */}
+      {/* Board selector and controls - Moved higher up */}
       <div
         style={{
           position: "absolute",
@@ -306,18 +348,42 @@ export function Canvas({ userId }: { userId: string }) {
           alignItems: "center",
         }}
       >
-        <Select value={currentRoom.id} onValueChange={handleRoomChange}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select a board" />
-          </SelectTrigger>
-          <SelectContent>
-            {availableRooms.map(room => (
-              <SelectItem key={room.id} value={room.id}>
-                {room.name} {room.isShared && "👥"}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {isRenamingBoard ? (
+          <div className="flex items-center gap-2">
+            <Input
+              ref={renameInputRef}
+              value={newBoardName}
+              onChange={(e) => setNewBoardName(e.target.value)}
+              onBlur={handleRenameBoard}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRenameBoard();
+                if (e.key === 'Escape') setIsRenamingBoard(false);
+              }}
+              className="w-[180px]"
+            />
+            <Button size="sm" variant="outline" onClick={handleRenameBoard}>
+              Save
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Select value={currentRoom.id} onValueChange={handleRoomChange}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select a board" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableRooms.map(room => (
+                  <SelectItem key={room.id} value={room.id}>
+                    {room.name} {room.isShared && "👥"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="ghost" onClick={startRenaming}>
+              <Pencil className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
         
         <Button size="sm" variant="outline" onClick={() => setIsNewBoardDialogOpen(true)}>
           New Board
@@ -336,6 +402,9 @@ export function Canvas({ userId }: { userId: string }) {
         onMount={(editor) => {
           // Register bookmark handler
           editor.registerExternalAssetHandler('url', getBookmarkPreview);
+          
+          // Log store information for debugging
+          console.log("TLDraw store initialized with room:", currentRoom);
         }}
       />
 
@@ -423,7 +492,7 @@ export function Canvas({ userId }: { userId: string }) {
       <style jsx global>{`
         .tldraw-style-panel,
         .tlui-style-panel {
-          top: 35px !important;
+          top: 45px !important;
         }
       `}</style>
     </div>
