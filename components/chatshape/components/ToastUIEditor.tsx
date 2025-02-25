@@ -33,24 +33,24 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
     };
   }, [onBlur]);
 
-  // Set up a polling mechanism for content changes
+  // Set up real-time content monitoring with frequent updates
   useEffect(() => {
-    const interval = setInterval(() => {
-      const instance = editorRef.current?.getInstance();
-      if (!instance) return;
-      
-      const currentContent = instance.getMarkdown() || '';
-      if (currentContent !== contentRef.current) {
-        contentRef.current = currentContent;
-        onChange(currentContent);
-      }
-    }, 300); // Poll every 300ms
+    const instance = editorRef.current?.getInstance();
+    if (!instance) return;
     
-    return () => {
-      clearInterval(interval);
-    };
+    // Use a short interval to check for changes frequently
+    const interval = setInterval(() => {
+      const content = instance.getMarkdown() || '';
+      if (content !== contentRef.current) {
+        contentRef.current = content;
+        onChange(content);
+      }
+    }, 100); // Check every 100ms for more responsive updates
+    
+    return () => clearInterval(interval);
   }, [onChange]);
 
+  // Keep the original onChange handler for compatibility
   const handleChange = () => {
     const instance = editorRef.current?.getInstance();
     const content = instance?.getMarkdown() || '';
@@ -63,10 +63,10 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
       ref={containerRef}
       style={{
         width: '100%',
-        height: '100%',
+        height: '100%',  // Let this container fill its parent
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: '#F9FAFB',
+        backgroundColor: '#F9FAFB', // Match chatshape color
       }}
     >
       <Editor
@@ -74,8 +74,8 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
         initialValue={initialValue}
         initialEditType="wysiwyg"
         previewStyle="vertical"
-        height="100%"
-        hideModeSwitch={true}
+        height="100%"       // Make the editor itself fill the container
+        hideModeSwitch={true}  // <--- This hides the tabs
         usageStatistics={false}
         onChange={handleChange}
       />

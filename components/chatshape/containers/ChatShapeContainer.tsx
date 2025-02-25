@@ -1,189 +1,84 @@
-// chatshape/containers/ChatShapeContainer.tsx
-import React, { useState } from "react";
-import { ChatShape } from "../ChatShapeTypes";
-import { useChatAPI } from "../hooks/useChatAPI";
-import { usePromptResize } from "../hooks/usePromptResize";
-import { getBranchOffset } from "../utils/mathHelpers";
-import { makeShapeID } from "@/lib/makeShapeID";
-import { connectShapes } from "@/lib/connectShapes";
-import { ChatShapeView } from "./ChatShapeView";
-import { useQuota } from "@/components/hooks/useQuota";
+// components/chatshape/ToastUIEditor.tsx
+import React, { useRef, useEffect } from 'react';
+import { Editor } from '@toast-ui/react-editor';
+import '@toast-ui/editor/dist/toastui-editor.css';
 
-export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
-  const { getChatResponse } = useChatAPI();
+export type ToastUIEditorProps = {
+  initialValue: string;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+};
 
-  // Import the refetch function from the quota hook to update the quota immediately.
-  const { refetch: refetchQuota } = useQuota();
+export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
+  initialValue,
+  onChange,
+  onBlur,
+}) => {
+  const editorRef = useRef<Editor>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef(initialValue);
 
-  // State for prompt, AI response, editing, loading
-  const [localPrompt, setLocalPrompt] = useState(shape.props.prompt);
-  const [localResponse, setLocalResponse] = useState(shape.props.response);
-  const [isEditingResponse, setIsEditingResponse] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const HEADER_HEIGHT = 32;
-  const totalHeight = shape.props.h - HEADER_HEIGHT;
-
-  // Use the modular hook to manage prompt area resizing.
-  const { promptHeight, handleDividerMouseDown } = usePromptResize({
-    initialHeight: 40,
-    totalHeight,
-    minHeight: 40,
-    // Optionally, set a max: maxHeight: 300,
-  });
-
-  // -- Chat logic below
-
-  async function sendPrompt() {
-    setIsLoading(true);
-    try {
-      const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
-      ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
-
-      const { x: offsetX, y: offsetY } = getBranchOffset(childCount, 120, 30);
-      const newX = shape.x + shape.props.w + offsetX;
-      const newY = shape.y + offsetY;
-      const userEditedAIResponse = localResponse !== shape.props.response;
-      const context = userEditedAIResponse ? localResponse : undefined;
-
-      const aiResponse = await getChatResponse(localPrompt, context);
-      const newShapeId = makeShapeID();
-      editor.createShape({
-        id: newShapeId,
-        type: "chat",
-        x: newX,
-        y: newY,
-        props: {
-          prompt: "",
-          response: aiResponse,
-          branchType: "normal",
-          w: shape.props.w,
-          h: shape.props.h,
-          dateCreated: Date.now(),
-          color: shape.props.color,
-          dash: shape.props.dash,
-        },
-      });
-      connectShapes(editor, shape.id, newShapeId);
-      // Immediately refetch quota after a successful prompt generation.
-      refetchQuota();
-    } catch (err) {
-      console.error("Error generating chat response:", err);
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        onBlur();
+      }
     }
-  }
-
-  // Updated handleContextSend to update quota immediately after a prompt is generated.
-  async function handleContextSend(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsLoading(true);
-    
-    const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
-    ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
-
-    // Helper to mimic fan-out offset
-    const getFanOffset = (childIndex: number, spacing = 120) => {
-      if (childIndex === 0) return 0;
-      const n = Math.ceil(childIndex / 2);
-      const sign = childIndex % 2 === 1 ? -1 : 1;
-      return sign * n * spacing;
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
     };
+  }, [onBlur]);
 
-    const newX = shape.x + shape.props.w + 200;
-    const newY = shape.y + getFanOffset(childCount, 120);
-    // Use the current AI response as context
-    const context = localResponse;
-
-    try {
-      const aiResponse = await getChatResponse(localPrompt, context);
-      const newShapeId = makeShapeID();
-      editor.createShape({
-        id: newShapeId,
-        type: "chat",
-        x: newX,
-        y: newY,
-        props: {
-          prompt: "",
-          response: aiResponse,
-          branchType: "context",
-          w: shape.props.w,
-          h: shape.props.h,
-          dateCreated: Date.now(),
-          color: shape.props.color,
-          dash: shape.props.dash,
-        },
-      });
-      connectShapes(editor, shape.id, newShapeId);
-      // Immediately refetch quota after a successful context prompt generation.
-      refetchQuota();
-    } catch (err) {
-      console.error("Error re-sending context:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  function handleEditMouseDown(e: React.MouseEvent) {
-    e.stopPropagation();
-    e.preventDefault();
-    setIsEditingResponse(true);
-  }
-
-  function handleResponseBlur() {
-    setIsEditingResponse(false);
-    editor.updateShape({
-      id: shape.id,
-      type: "chat",
-      props: { ...shape.props, response: localResponse },
-    });
-  }
-
-  // Modified to sync in real-time on every keystroke
-  function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const newPrompt = e.target.value;
-    setLocalPrompt(newPrompt);
+  // Set up real-time content monitoring with frequent updates
+  useEffect(() => {
+    const instance = editorRef.current?.getInstance();
+    if (!instance) return;
     
-    // Update the shape immediately to trigger real-time sync
-    editor.updateShape({
-      id: shape.id,
-      type: "chat",
-      props: { ...shape.props, prompt: newPrompt },
-    });
-  }
-
-  // Modified to sync in real-time on every keystroke
-  function handleResponseUpdate(newText: string) {
-    setLocalResponse(newText);
+    // Use a short interval to check for changes frequently
+    const interval = setInterval(() => {
+      const content = instance.getMarkdown() || '';
+      if (content !== contentRef.current) {
+        contentRef.current = content;
+        onChange(content);
+      }
+    }, 100); // Check every 100ms for more responsive updates
     
-    // Only immediately update if editing
-    if (isEditingResponse) {
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: { ...shape.props, response: newText },
-      });
-    }
-  }
+    return () => clearInterval(interval);
+  }, [onChange]);
+
+  // Keep the original onChange handler for compatibility
+  const handleChange = () => {
+    const instance = editorRef.current?.getInstance();
+    const content = instance?.getMarkdown() || '';
+    contentRef.current = content;
+    onChange(content);
+  };
 
   return (
-    <ChatShapeView
-      shape={shape}
-      isLoading={isLoading}
-      isEditingResponse={isEditingResponse}
-      localPrompt={localPrompt}
-      localResponse={localResponse}
-      promptHeight={promptHeight}
-      onDividerMouseDown={handleDividerMouseDown}
-      onEdit={handleEditMouseDown}
-      onResponseBlur={handleResponseBlur}
-      onPromptChange={handlePromptChange}
-      onResponseUpdate={handleResponseUpdate}
-      onSendPrompt={sendPrompt}
-      onContextSend={handleContextSend}
-    />
+    <div
+      ref={containerRef}
+      style={{
+        width: '100%',
+        height: '100%',  // Let this container fill its parent
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#F9FAFB', // Match chatshape color
+      }}
+    >
+      <Editor
+        ref={editorRef}
+        initialValue={initialValue}
+        initialEditType="wysiwyg"
+        previewStyle="vertical"
+        height="100%"       // Make the editor itself fill the container
+        hideModeSwitch={true}  // <--- This hides the tabs
+        usageStatistics={false}
+        onChange={handleChange}
+      />
+    </div>
   );
-}
-
-ChatShapeContainer.layoutTree = new Map();
+};
