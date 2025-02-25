@@ -1,14 +1,16 @@
-import { T, DefaultColorStyle, DefaultDashStyle } from '@tldraw/tlschema'
+// Import what's actually available
+import { DefaultColorStyle, DefaultDashStyle } from '@tldraw/tlschema'
 
-// Define the schema for the ChatShape
+// Define the schema in the simplest way possible that will work with most tldraw versions
 export const chatShapeSchema = {
+  // Use any existing validators from the tlschema package
   props: {
-    w: T.number,
-    h: T.number,
-    prompt: T.string,
-    response: T.string,
-    branchType: T.string,
-    dateCreated: T.number,
+    w: { type: 'number', validate: (v: any) => typeof v === 'number' },
+    h: { type: 'number', validate: (v: any) => typeof v === 'number' },
+    prompt: { type: 'string', validate: (v: any) => typeof v === 'string' },
+    response: { type: 'string', validate: (v: any) => typeof v === 'string' },
+    branchType: { type: 'string', validate: (v: any) => typeof v === 'string' },
+    dateCreated: { type: 'number', validate: (v: any) => typeof v === 'number' },
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
   },

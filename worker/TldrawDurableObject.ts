@@ -13,7 +13,7 @@ import { chatShapeSchema } from './schemas/chatShapeSchema'
 const schema = createTLSchema({
   shapes: { 
     ...defaultShapeSchemas,
-    chat: chatShapeSchema, // Register our custom chat shape
+    chat: chatShapeSchema,
   },
 })
 
