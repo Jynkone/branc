@@ -1,5 +1,4 @@
-// chatshape/containers/ChatShapeContainer.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ChatShape } from "../ChatShapeTypes";
 import { useChatAPI } from "../hooks/useChatAPI";
 import { usePromptResize } from "../hooks/usePromptResize";
@@ -7,13 +6,10 @@ import { getBranchOffset } from "../utils/mathHelpers";
 import { makeShapeID } from "@/lib/makeShapeID";
 import { connectShapes } from "@/lib/connectShapes";
 import { ChatShapeView } from "./ChatShapeView";
-import { useQuota } from "@/components/hooks/useQuota";  // Updated import
+import { useQuota } from "@/components/hooks/useQuota";
 
-// Make sure to export the component correctly
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
   const { getChatResponse } = useChatAPI();
-
-  // Import the refetch function from the quota hook to update the quota immediately.
   const { refetch: refetchQuota } = useQuota();
 
   // State for prompt, AI response, editing, loading
@@ -21,6 +17,17 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   const [localResponse, setLocalResponse] = useState(shape.props.response);
   const [isEditingResponse, setIsEditingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // CRITICAL: Update local state when shape props change from remote updates
+  useEffect(() => {
+    setLocalPrompt(shape.props.prompt);
+  }, [shape.props.prompt]);
+
+  useEffect(() => {
+    if (!isEditingResponse) {
+      setLocalResponse(shape.props.response);
+    }
+  }, [shape.props.response, isEditingResponse]);
 
   const HEADER_HEIGHT = 32;
   const totalHeight = shape.props.h - HEADER_HEIGHT;
@@ -30,7 +37,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     initialHeight: 40,
     totalHeight,
     minHeight: 40,
-    // Optionally, set a max: maxHeight: 300,
   });
 
   // -- Chat logic below
@@ -66,7 +72,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       connectShapes(editor, shape.id, newShapeId);
-      // Immediately refetch quota after a successful prompt generation.
       refetchQuota();
     } catch (err) {
       console.error("Error generating chat response:", err);
@@ -75,17 +80,14 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   }
 
-  // Updated handleContextSend to update quota immediately after a prompt is generated.
   async function handleContextSend(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     setIsLoading(true);
-    console.log('Context Button Clicked!');
     
     const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
     ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
 
-    // Helper to mimic fan-out offset
     const getFanOffset = (childIndex: number, spacing = 120) => {
       if (childIndex === 0) return 0;
       const n = Math.ceil(childIndex / 2);
@@ -95,7 +97,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
 
     const newX = shape.x + shape.props.w + 200;
     const newY = shape.y + getFanOffset(childCount, 120);
-    // Use the current AI response as context
     const context = localResponse;
 
     try {
@@ -118,7 +119,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       connectShapes(editor, shape.id, newShapeId);
-      // Immediately refetch quota after a successful context prompt generation.
       refetchQuota();
     } catch (err) {
       console.error("Error re-sending context:", err);
@@ -135,6 +135,8 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
 
   function handleResponseBlur() {
     setIsEditingResponse(false);
+    
+    // Ensure store is updated when exiting edit mode
     editor.updateShape({
       id: shape.id,
       type: "chat",
@@ -142,34 +144,34 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     });
   }
 
-  // Modified to sync in real-time on every keystroke
-// In ChatShapeContainer.tsx
-function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-  const newPrompt = e.target.value;
-  setLocalPrompt(newPrompt);
-  
-  // Use a transaction to ensure proper sync
-  editor.batch(() => {
-    editor.updateShape({
-      id: shape.id,
-      type: "chat",
-      props: { ...shape.props, prompt: newPrompt },
+  // Improved to sync immediately on every keystroke
+  function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const newPrompt = e.target.value;
+    setLocalPrompt(newPrompt);
+    
+    // Update the store immediately with each change
+    editor.batch(() => {
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: { ...shape.props, prompt: newPrompt },
+      });
     });
-  });
-}
+  }
 
-function handleResponseUpdate(newText: string) {
-  setLocalResponse(newText);
-  
-  // Use a transaction to ensure proper sync
-  editor.batch(() => {
-    editor.updateShape({
-      id: shape.id,
-      type: "chat",
-      props: { ...shape.props, response: newText },
+  // Updated to sync changes in real-time
+  function handleResponseUpdate(newText: string) {
+    setLocalResponse(newText);
+    
+    // Update the store immediately with each change
+    editor.batch(() => {
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: { ...shape.props, response: newText },
+      });
     });
-  });
-}  
+  }
   
   return (
     <ChatShapeView

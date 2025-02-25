@@ -15,16 +15,15 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
-  // Force the textarea to update with the external prompt value
+  // Keep textarea value in sync with the prompt prop
   useEffect(() => {
-    if (textareaRef.current) {
+    if (textareaRef.current && textareaRef.current.value !== prompt) {
       textareaRef.current.value = prompt;
     }
   }, [prompt]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      // If nothing is typed, do nothing
       if (!prompt.trim()) {
         e.preventDefault()
         return
