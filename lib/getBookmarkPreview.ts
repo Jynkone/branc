@@ -1,7 +1,7 @@
 import { AssetRecordType, TLAsset, TLBookmarkAsset, getHashForString } from 'tldraw'
 
 // The server's URL for our bookmarks
-const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || 'http://localhost:5172'
+const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "";
 
 // This function handles bookmark unfurling
 export async function getBookmarkPreview({ url }: { url: string }): Promise<TLAsset> {
