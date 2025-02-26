@@ -114,78 +114,25 @@ export function Canvas({ userId }: { userId: string }) {
   useEffect(() => {
     if (!userId) return;
     
-    setIsLoading(true);
-    
-    // Handle initialization
     const initializeRooms = async () => {
       try {
-        // Get boards from our service 
         const boards = await getUserBoards(userId);
-        
-        // Check if default board exists
-        const defaultBoardId = getDefaultBoardId(userId);
-        let defaultBoard = boards.find(board => board.id === defaultBoardId);
-        
-        if (!defaultBoard) {
-          // Create the default board if it doesn't exist
-          defaultBoard = await createBoard(userId, "My First Board");
-          boards.push(defaultBoard);
-        }
         
         setAvailableRooms(boards);
         
-        // If we have a shared board ID in the URL, prioritize that
-        if (sharedBoardId) {
-          // Verify access to the shared board
-          const hasAccess = await userHasAccessToBoard(userId, sharedBoardId);
-          
-          if (hasAccess) {
-            // Find the board in our fetched boards
-            let sharedBoard = boards.find(board => board.id === sharedBoardId);
-            
-            if (!sharedBoard) {
-              // This is a new shared board to us - only add it once
-              sharedBoard = {
-                id: sharedBoardId,
-                name: `Shared Board`,
-                isShared: true,
-                owner: 'unknown',
-                createdAt: Date.now(),
-              };
-              
-              // Add to our list of boards only if it's not already there
-              if (!boards.some(board => board.id === sharedBoardId)) {
-                boards.push(sharedBoard);
-              }
-            }
-            
-            setCurrentRoom(sharedBoard);
-            console.log("Setting shared board as current:", sharedBoard);
-          } else {
-            // No access to this board, use default
-            setCurrentRoom(defaultBoard);
-            console.log("Setting default board as current:", defaultBoard);
-            router.push('/'); // Redirect to home without triggering a re-render loop
-          }
-        } else {
-          // No shared board ID in URL, use default
-          setCurrentRoom(defaultBoard);
-          console.log("Setting default board as current:", defaultBoard);
-        }
+        // Use the first board or create a default if none exist
+        const initialBoard = boards[0] || await createBoard(userId, "My First Board");
+        setCurrentRoom(initialBoard);
       } catch (err) {
-        console.error("Error initializing boards:", err);
-        // Fallback to empty state
-        setAvailableRooms([]);
-        setCurrentRoom(null);
+        console.error("Failed to initialize boards:", err);
       } finally {
         setIsLoading(false);
       }
     };
     
     initializeRooms();
-    // Remove router from dependencies to prevent re-renders
-  }, [userId, sharedBoardId]);
-      
+  }, [userId]);
+        
   // Function to handle room change
   const handleRoomChange = (roomId: string) => {
     const selectedRoom = availableRooms.find(room => room.id === roomId);
