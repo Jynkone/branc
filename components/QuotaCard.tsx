@@ -1,22 +1,59 @@
 // QuotaCard.tsx
-import React from "react";
-import { useQuota, QuotaData } from "./hooks/useQuota";
+import React, { useEffect, useState } from "react";
+import { getUserPromptCount } from "@/lib/quotaService";
+import { useAuth } from "@clerk/nextjs";
+
+export type QuotaData = {
+  count: number;
+  limit: number;
+};
 
 export function QuotaCard() {
-  const { quota, isLoading, error } = useQuota();
+  const { userId, isLoaded } = useAuth();
+  const [quota, setQuota] = useState<QuotaData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch quota from API
+  const fetchQuota = async () => {
+    if (!userId) return;
+    
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/quota");
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setQuota({ count: data.count, limit: data.limit });
+      }
+    } catch (err) {
+      setError("Failed to fetch quota");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoaded && userId) {
+      fetchQuota();
+      const interval = setInterval(fetchQuota, 5000); // Poll every 5 seconds
+      return () => clearInterval(interval);
+    }
+  }, [userId, isLoaded]);
 
   // If there's an error and no quota data, show error.
   if (error && !quota) {
     return <div style={{ color: "red" }}>{error}</div>;
   }
+  
   // If no quota data at all, show loading (only on initial load)
   if (!quota) {
     return <div>Loading quota...</div>;
   }
 
   // Once quota is available, always display it regardless of isLoading.
-  const displayQuota: QuotaData = quota;
-  const { count, limit } = displayQuota;
+  const { count, limit } = quota;
   const percentage = Math.min((count / limit) * 100, 100);
 
   return (

@@ -2,7 +2,7 @@
 import { TLBaseShape, TLDefaultColorStyle, TLDefaultDashStyle } from "tldraw"
 
 /**
- * Defines the ChatShape type.
+ * Defines the ChatShape type with synchronized properties
  */
 export type ChatShape = TLBaseShape<
   "chat",

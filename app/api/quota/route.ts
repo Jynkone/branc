@@ -1,8 +1,6 @@
-// app/api/quota/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@clerk/nextjs/server";
 import { getUserPromptCount } from "@/lib/quotaService";
-import { getServerSupabaseClient } from "@/lib/supabaseServer";
 
 export async function GET(req: NextRequest) {
   // Get user ID from Clerk
@@ -12,10 +10,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = getServerSupabaseClient(req);
-    
     // Get quota from Supabase
-    const { count, limit } = await getUserPromptCount(userId, supabase);
+    const { count, limit } = await getUserPromptCount(userId);
     
     return NextResponse.json({ count, limit });
   } catch (error) {
