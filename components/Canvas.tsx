@@ -312,14 +312,15 @@ export function Canvas({ userId }: { userId: string }) {
   const customShapeUtils = useMemo(() => [ChatShapeUtil, ...defaultShapeUtils], []);
   
   // Create a store connected to multiplayer only if we have a current room
-  const store = useSync({
-    // Don't try to modify the protocol - TLDraw handles this internally
-    uri: currentRoom && WORKER_URL ? 
-      `${WORKER_URL}/connect/${currentRoom.id}` : 
-      '',
-    assets: multiplayerAssetStore,
-    shapeUtils: customShapeUtils,
-  });
+  const connectionUri = currentRoom && WORKER_URL 
+  ? `${WORKER_URL}/connect/${currentRoom.id}` 
+  : "about:blank"; // Valid dummy URL
+
+const store = useSync({
+  uri: connectionUri,
+  assets: multiplayerAssetStore,
+  shapeUtils: customShapeUtils,
+});
     
   // Only render the full UI if we have a current room
   if (!currentRoom) {
