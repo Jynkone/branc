@@ -106,7 +106,8 @@ export function Canvas({ userId }: { userId: string }) {
   const [shareLink, setShareLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  
+  const isChangingRef = useRef(false);
+
   // Ref for the rename input
   const renameInputRef = useRef<HTMLInputElement>(null);
   
@@ -115,7 +116,6 @@ export function Canvas({ userId }: { userId: string }) {
     if (!userId) return;
     
     // Use a ref to track if we're in the middle of a board change to prevent double creation
-    const isChangingRef = useRef(false);
     
     if (isChangingRef.current) return;
     
