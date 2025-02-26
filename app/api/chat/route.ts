@@ -1,9 +1,11 @@
+// app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { GEMINI_MODEL } from "@/ai/models";
 import { createClient } from "@/ai/client";
 import { systemPrompt } from "@/ai/prompt";
 import { getAuth } from "@clerk/nextjs/server";
 import { getUserPromptCount, incrementUserPromptCount } from "@/lib/quotaService";
+import { getServerSupabaseClient } from "@/lib/supabaseServer";
 import { ensureUserExists } from "@/lib/boardService";
 
 export async function POST(req: NextRequest) {
@@ -14,8 +16,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
+    const supabase = getServerSupabaseClient(req);
+
     // Ensure user exists in Supabase first
-    await ensureUserExists(userId);
+    await ensureUserExists(userId, supabase);
 
     const { prompt, context } = await req.json();
     if (!prompt || prompt.trim() === "") {
@@ -26,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Check quota against Supabase
-    const { count, limit } = await getUserPromptCount(userId);
+    const { count, limit } = await getUserPromptCount(userId, supabase);
     if (count >= limit) {
       return NextResponse.json(
         { error: "You have reached your prompt limit of 50. Please upgrade or try again later." },
@@ -49,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     // Only increment the prompt count if a valid response is generated
     if (responseText && responseText.trim() !== "") {
-      await incrementUserPromptCount(userId);
+      await incrementUserPromptCount(userId, supabase);
     } else {
       return NextResponse.json(
         { error: "Failed to generate a valid response." },
@@ -58,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get updated count after increment
-    const { count: newCount } = await getUserPromptCount(userId);
+    const { count: newCount } = await getUserPromptCount(userId, supabase);
     
     return NextResponse.json({ response: responseText, count: newCount });
   } catch (error) {
