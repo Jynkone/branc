@@ -132,6 +132,8 @@ export function Canvas({ userId }: { userId: string }) {
           boards.push(defaultBoard);
         }
         
+        setAvailableRooms(boards);
+        
         // If we have a shared board ID in the URL, prioritize that
         if (sharedBoardId) {
           // Verify access to the shared board
@@ -142,7 +144,7 @@ export function Canvas({ userId }: { userId: string }) {
             let sharedBoard = boards.find(board => board.id === sharedBoardId);
             
             if (!sharedBoard) {
-              // This is a new shared board to us
+              // This is a new shared board to us - only add it once
               sharedBoard = {
                 id: sharedBoardId,
                 name: `Shared Board`,
@@ -151,23 +153,22 @@ export function Canvas({ userId }: { userId: string }) {
                 createdAt: Date.now(),
               };
               
-              // Add to our list of boards
-              boards.push(sharedBoard);
+              // Add to our list of boards only if it's not already there
+              if (!boards.some(board => board.id === sharedBoardId)) {
+                boards.push(sharedBoard);
+              }
             }
             
-            setAvailableRooms(boards);
             setCurrentRoom(sharedBoard);
             console.log("Setting shared board as current:", sharedBoard);
           } else {
             // No access to this board, use default
-            setAvailableRooms(boards);
             setCurrentRoom(defaultBoard);
             console.log("Setting default board as current:", defaultBoard);
-            router.push('/'); // Redirect to home
+            router.push('/'); // Redirect to home without triggering a re-render loop
           }
         } else {
           // No shared board ID in URL, use default
-          setAvailableRooms(boards);
           setCurrentRoom(defaultBoard);
           console.log("Setting default board as current:", defaultBoard);
         }
@@ -182,22 +183,24 @@ export function Canvas({ userId }: { userId: string }) {
     };
     
     initializeRooms();
-  }, [userId, sharedBoardId, router]);
-    
+    // Remove router from dependencies to prevent re-renders
+  }, [userId, sharedBoardId]);
+      
   // Function to handle room change
   const handleRoomChange = (roomId: string) => {
     const selectedRoom = availableRooms.find(room => room.id === roomId);
     if (selectedRoom) {
       setCurrentRoom(selectedRoom);
-      // Update the URL to reflect the current board
+      // Update the URL to reflect the current board but with replace instead of push
+      // This way it won't add to browser history and won't trigger the effect again
       if (selectedRoom.isShared || !selectedRoom.id.startsWith('user-')) {
-        router.push(`/?board=${selectedRoom.id}`);
+        router.replace(`/?board=${selectedRoom.id}`);
       } else {
-        router.push('/');
+        router.replace('/');
       }
     }
   };
-  
+    
   // Function to create a new board
   const handleCreateNewBoard = async () => {
     if (!userId || !newBoardName.trim()) {
