@@ -63,61 +63,102 @@ export async function userHasAccessToBoard(userId: string, boardId: string): Pro
 
 // Get all boards for a user
 export async function getUserBoards(userId: string): Promise<BoardData[]> {
-    // Ensure user exists
-    await ensureUserExists(userId);
+  // Ensure user exists
+  await ensureUserExists(userId);
+  
+  // Helper function to get boards from localStorage
+  const getLocalStorageBoards = (): BoardData[] => {
+    if (typeof window === 'undefined') return [];
     
-    // First, get all board IDs the user has access to
-    const { data: userBoardData, error: userBoardError } = await supabase
-      .from('user_boards')
-      .select('board_id')
-      .eq('user_id', userId);
-    
-    if (userBoardError || !userBoardData || userBoardData.length === 0) {
-      console.error('Error fetching user board IDs:', userBoardError);
-      
-      // Try localStorage fallback
-      return getLocalStorageBoards(userId);
+    try {
+      const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
+      if (storedBoardsStr) {
+        return JSON.parse(storedBoardsStr);
+      }
+    } catch (err) {
+      console.error('Error reading from localStorage:', err);
     }
     
-    // Extract the board IDs
-    const boardIds = userBoardData.map(item => item.board_id);
+    return [];
+  };
+  
+  // First, get all board IDs the user has access to
+  const { data: userBoardData, error: userBoardError } = await supabase
+    .from('user_boards')
+    .select('board_id')
+    .eq('user_id', userId);
+  
+  // If no boards exist in Supabase, check localStorage
+  if (userBoardError || !userBoardData || userBoardData.length === 0) {
+    const localBoards = getLocalStorageBoards();
     
-    // Then fetch all boards matching these IDs
-    const { data: boardsData, error: boardsError } = await supabase
-      .from('boards')
-      .select('*')
-      .in('id', boardIds);
-    
-    if (boardsError) {
-      console.error('Error fetching boards:', boardsError);
-      return getLocalStorageBoards(userId);
+    // If no boards at all, return an empty array
+    if (localBoards.length === 0) {
+      return [];
     }
     
-    // Map to our BoardData format
-    const supabaseBoards = boardsData ? boardsData.map(board => ({
-      id: board.id,
-      name: board.name,
-      isShared: board.is_shared,
-      owner: userId, // Default the owner to current user
-      createdAt: new Date(board.created_at).getTime()
-    })) : [];
-    
-    // Merge with localStorage boards during migration
-    const localBoards = getLocalStorageBoards(userId);
-    
-    // Filter out boards already in Supabase to avoid duplicates
-    const uniqueLocalBoards = localBoards.filter(local => 
-      !supabaseBoards.some(supaBoard => supaBoard.id === local.id)
-    );
-    
-    // Sync any missing boards to Supabase (in background)
-    uniqueLocalBoards.forEach(board => {
-      syncBoardToSupabase(userId, board).catch(console.error);
-    });
-    
-    return [...supabaseBoards, ...uniqueLocalBoards];
+    return localBoards;
   }
   
+  // Extract the board IDs
+  const boardIds = userBoardData.map(item => item.board_id);
+  
+  // Then fetch all boards matching these IDs
+  const { data: boardsData, error: boardsError } = await supabase
+    .from('boards')
+    .select('*')
+    .in('id', boardIds);
+  
+  if (boardsError) {
+    console.error('Error fetching boards:', boardsError);
+    return getLocalStorageBoards();
+  }
+  
+  // Map to our BoardData format
+  const supabaseBoards = boardsData ? boardsData.map(board => ({
+    id: board.id,
+    name: board.name,
+    isShared: board.is_shared,
+    owner: userId,
+    createdAt: new Date(board.created_at).getTime()
+  })) : [];
+  
+  // Merge with localStorage boards during migration
+  const localBoards = getLocalStorageBoards();
+  
+  // Deduplication logic
+  const uniqueBoards = new Map<string, BoardData>();
+  
+  // Add Supabase boards first
+  supabaseBoards.forEach(board => uniqueBoards.set(board.id, board));
+  
+  // Add local boards only if they don't already exist
+  localBoards.forEach(board => {
+    if (!uniqueBoards.has(board.id)) {
+      uniqueBoards.set(board.id, board);
+    }
+  });
+  
+  // Convert back to array
+  const mergedBoards = Array.from(uniqueBoards.values());
+  
+  // Reduce sync operations
+  const boardsToSync = localBoards.filter(local => 
+    !supabaseBoards.some(supaBoard => supaBoard.id === local.id)
+  );
+  
+  // Limit sync to first 3 boards to prevent excessive operations
+  for (const local of boardsToSync.slice(0, 3)) {
+    try {
+      await syncBoardToSupabase(userId, local);
+    } catch (err) {
+      console.error('Sync failed for board:', local.id, err);
+    }
+  }
+  
+  return mergedBoards;
+}
+
   // Helper function to get boards from localStorage
   function getLocalStorageBoards(userId: string): BoardData[] {
     if (typeof window === 'undefined') return [];
@@ -133,70 +174,95 @@ export async function getUserBoards(userId: string): Promise<BoardData[]> {
     
     return [];
   }// Create a new board
-export async function createBoard(userId: string, name: string): Promise<BoardData> {
-  // Ensure user exists
-  await ensureUserExists(userId);
-  
-  const boardId = `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  
-  const newBoard = {
-    id: boardId,
-    name,
-    is_shared: true
-  };
-  
-  // Insert into Supabase
-  const { error: boardError } = await supabase
-    .from('boards')
-    .insert(newBoard);
-  
-  if (boardError) {
-    console.error('Error creating board in Supabase:', boardError);
-  }
-  
-  // Create user-board relationship
-  const { error: relationError } = await supabase
-    .from('user_boards')
-    .insert({
-      user_id: userId,
-      board_id: boardId,
-      role: 'owner'
-    });
-  
-  if (relationError) {
-    console.error('Error creating user-board relationship:', relationError);
-  }
-  
-  // During migration, also write to localStorage (remove this later)
-  try {
-    if (typeof window !== 'undefined') {
-      const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
-      let storedBoards = storedBoardsStr ? JSON.parse(storedBoardsStr) : [];
-      
-      const localBoard = {
-        id: boardId,
-        name,
+
+
+  export async function createBoard(userId: string, name: string): Promise<BoardData> {
+    // Ensure user exists
+    await ensureUserExists(userId);
+    
+    // Check if a board with this name already exists
+    const { data: existingBoards } = await supabase
+      .from('boards')
+      .select('id, name')
+      .eq('name', name)
+      .eq('is_shared', true)
+      .eq('id[starts_with]', `user-${userId}-`);
+    
+    // If board exists, return the existing board
+    if (existingBoards && existingBoards.length > 0) {
+      return {
+        id: existingBoards[0].id,
+        name: existingBoards[0].name,
         isShared: true,
         owner: userId,
         createdAt: Date.now()
       };
-      
-      storedBoards.push(localBoard);
-      localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
     }
-  } catch (err) {
-    console.error('Error writing to localStorage:', err);
+    
+    // Generate a more deterministic board ID
+    const boardId = `user-${userId}-${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+    
+    const newBoard = {
+      id: boardId,
+      name,
+      is_shared: true
+    };
+    
+    // Insert into Supabase
+    const { error: boardError } = await supabase
+      .from('boards')
+      .insert(newBoard);
+    
+    if (boardError) {
+      console.error('Error creating board in Supabase:', boardError);
+    }
+    
+    // Create user-board relationship
+    const { error: relationError } = await supabase
+      .from('user_boards')
+      .insert({
+        user_id: userId,
+        board_id: boardId,
+        role: 'owner'
+      });
+    
+    if (relationError) {
+      console.error('Error creating user-board relationship:', relationError);
+    }
+    
+    // Safely update localStorage
+    try {
+      if (typeof window !== 'undefined') {
+        const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
+        const storedBoards = storedBoardsStr ? JSON.parse(storedBoardsStr) : [];
+        
+        // Only add if not already exists
+        const boardExists = storedBoards.some((board: BoardData) => board.id === boardId);
+        if (!boardExists) {
+          storedBoards.push({
+            id: boardId,
+            name,
+            isShared: true,
+            owner: userId,
+            createdAt: Date.now()
+          });
+          
+          localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
+        }
+      }
+    } catch (err) {
+      console.error('Error updating localStorage:', err);
+    }
+    
+    return {
+      id: boardId,
+      name,
+      isShared: true,
+      owner: userId,
+      createdAt: Date.now()
+    };
   }
   
-  return {
-    id: boardId,
-    name,
-    isShared: true,
-    owner: userId,
-    createdAt: Date.now()
-  };
-}
-
 // Rename a board
 export async function renameBoard(userId: string, boardId: string, newName: string): Promise<void> {
   // Update in Supabase
