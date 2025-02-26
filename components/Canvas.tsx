@@ -188,19 +188,30 @@ export function Canvas({ userId }: { userId: string }) {
       
   // Function to handle room change
   const handleRoomChange = (roomId: string) => {
+    // Sanity check to prevent unnecessary operations
+    if (!roomId) return;
+  
+    // Find the selected room from existing rooms
     const selectedRoom = availableRooms.find(room => room.id === roomId);
-    if (selectedRoom) {
-      setCurrentRoom(selectedRoom);
-      // Update the URL to reflect the current board but with replace instead of push
-      // This way it won't add to browser history and won't trigger the effect again
-      if (selectedRoom.isShared || !selectedRoom.id.startsWith('user-')) {
-        router.replace(`/?board=${selectedRoom.id}`);
-      } else {
-        router.replace('/');
-      }
+    
+    // If room is not found, log error and return
+    if (!selectedRoom) {
+      console.error(`No board found with ID: ${roomId}`);
+      return;
+    }
+  
+    // Update current room state
+    setCurrentRoom(selectedRoom);
+  
+    // Update URL only for shared or non-default boards
+    if (selectedRoom.isShared || !selectedRoom.id.startsWith(`user-${userId}-`)) {
+      router.replace(`/?board=${selectedRoom.id}`);
+    } else {
+      // For default boards, remove board parameter
+      router.replace('/');
     }
   };
-    
+      
   // Function to create a new board
   const handleCreateNewBoard = async () => {
     if (!userId || !newBoardName.trim()) {
