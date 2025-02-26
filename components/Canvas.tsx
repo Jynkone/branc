@@ -183,7 +183,7 @@ export function Canvas({ userId }: { userId: string }) {
     
     initializeRooms();
   }, [userId, sharedBoardId, router]);
-  
+    
   // Function to handle room change
   const handleRoomChange = (roomId: string) => {
     const selectedRoom = availableRooms.find(room => room.id === roomId);
