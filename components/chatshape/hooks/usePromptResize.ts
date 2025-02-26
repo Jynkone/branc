@@ -10,6 +10,8 @@ interface UsePromptResizeOptions {
   minHeight?: number
   /** Maximum pixel height for the prompt region (optional) */
   maxHeight?: number
+  /** Callback when height changes - used to sync the height to the shape */
+  onHeightChange?: (height: number) => void
 }
 
 export function usePromptResize({
@@ -17,18 +19,27 @@ export function usePromptResize({
   totalHeight,
   minHeight = 60,
   maxHeight,
+  onHeightChange,
 }: UsePromptResizeOptions) {
   const [promptHeight, setPromptHeight] = useState(initialHeight)
   const [isDragging, setIsDragging] = useState(false)
   const [startY, setStartY] = useState(0)
   const [startHeight, setStartHeight] = useState(initialHeight)
 
+  // Effect to update promptHeight when initialHeight prop changes (e.g. from sync)
+  useEffect(() => {
+    if (!isDragging && initialHeight !== promptHeight) {
+      setPromptHeight(initialHeight)
+    }
+  }, [initialHeight, isDragging, promptHeight])
+
   // If the bounding box changes (totalHeight changes), ensure prompt isn't bigger than total
   useEffect(() => {
     if (promptHeight > totalHeight) {
       setPromptHeight(totalHeight)
+      if (onHeightChange) onHeightChange(totalHeight)
     }
-  }, [promptHeight, totalHeight])
+  }, [promptHeight, totalHeight, onHeightChange])
 
   function handleDividerMouseDown(e: React.MouseEvent) {
     e.stopPropagation()
@@ -65,6 +76,11 @@ export function usePromptResize({
       if (!isDragging) return
       e.preventDefault()
       setIsDragging(false)
+      
+      // When mouse is released, notify parent of the final height change
+      if (onHeightChange && promptHeight !== startHeight) {
+        onHeightChange(promptHeight)
+      }
     }
 
     if (isDragging) {
@@ -75,7 +91,7 @@ export function usePromptResize({
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
-  }, [isDragging, startY, startHeight, minHeight, maxHeight, totalHeight])
+  }, [isDragging, startY, startHeight, promptHeight, minHeight, maxHeight, totalHeight, onHeightChange])
 
   return { promptHeight, handleDividerMouseDown }
 }

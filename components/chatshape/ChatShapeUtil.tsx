@@ -22,13 +22,15 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
     response: T.string,
     branchType: T.string,
     dateCreated: T.number,
+    promptHeight: T.number,
+    isEditing: T.boolean,
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
   };
 
   static override migrations = {
     firstVersion: 0,
-    currentVersion: 1,
+    currentVersion: 2,
     migrators: {
       1: {
         up: (shape: any): any => {
@@ -44,6 +46,14 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
         },
         down: (shape: any): any => shape,
       },
+      2: {
+        up: (shape: any): any => {
+          if (shape.props.promptHeight === undefined) shape.props.promptHeight = 40;
+          if (shape.props.isEditing === undefined) shape.props.isEditing = false;
+          return shape;
+        },
+        down: (shape: any): any => shape,
+      },
     },
   };
 
@@ -55,6 +65,8 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       response: "",
       branchType: "normal",
       dateCreated: Date.now(),
+      promptHeight: 40,
+      isEditing: false,
       color: "black",
       dash: "draw",
     };

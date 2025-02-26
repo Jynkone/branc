@@ -1,4 +1,3 @@
-// Import what's actually available
 import { DefaultColorStyle, DefaultDashStyle } from '@tldraw/tlschema'
 
 // Define the schema in the simplest way possible that will work with most tldraw versions
@@ -11,12 +10,14 @@ export const chatShapeSchema = {
     response: { type: 'string', validate: (v: any) => typeof v === 'string' },
     branchType: { type: 'string', validate: (v: any) => typeof v === 'string' },
     dateCreated: { type: 'number', validate: (v: any) => typeof v === 'number' },
+    promptHeight: { type: 'number', validate: (v: any) => typeof v === 'number' },
+    isEditing: { type: 'boolean', validate: (v: any) => typeof v === 'boolean' },
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
   },
   migrations: {
     firstVersion: 0,
-    currentVersion: 1,
+    currentVersion: 2,
     migrators: {
       1: {
         up: (shape: any): any => {
@@ -32,6 +33,19 @@ export const chatShapeSchema = {
         },
         down: (shape: any): any => shape,
       },
+      2: {
+        up: (shape: any): any => {
+          // Add the new properties with default values if they don't exist
+          if (shape.props.promptHeight === undefined) shape.props.promptHeight = 40;
+          if (shape.props.isEditing === undefined) shape.props.isEditing = false;
+          return shape;
+        },
+        down: (shape: any): any => {
+          // Remove the new properties when downgrading
+          const { promptHeight, isEditing, ...props } = shape.props;
+          return { ...shape, props };
+        }
+      }
     }
   }
 }

@@ -12,11 +12,14 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   const { getChatResponse } = useChatAPI();
   const { refetch: refetchQuota } = useQuota();
 
-  // State for prompt, AI response, editing, loading
+  // State for prompt, AI response, loading
   const [localPrompt, setLocalPrompt] = useState(shape.props.prompt);
   const [localResponse, setLocalResponse] = useState(shape.props.response);
-  const [isEditingResponse, setIsEditingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Use the isEditing property from the shape instead of local state
+  // We'll still keep a local state for faster UI updates, but sync to shape props
+  const [localIsEditing, setLocalIsEditing] = useState(shape.props.isEditing);
 
   // CRITICAL: Update local state when shape props change from remote updates
   useEffect(() => {
@@ -24,19 +27,33 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   }, [shape.props.prompt]);
 
   useEffect(() => {
-    if (!isEditingResponse) {
+    if (!localIsEditing) {
       setLocalResponse(shape.props.response);
     }
-  }, [shape.props.response, isEditingResponse]);
+  }, [shape.props.response, localIsEditing]);
+
+  // Sync local editing state with shape props from other users
+  useEffect(() => {
+    setLocalIsEditing(shape.props.isEditing);
+  }, [shape.props.isEditing]);
 
   const HEADER_HEIGHT = 32;
   const totalHeight = shape.props.h - HEADER_HEIGHT;
 
   // Use the modular hook to manage prompt area resizing.
+  // Pass the promptHeight from shape props and a callback to update it
   const { promptHeight, handleDividerMouseDown } = usePromptResize({
-    initialHeight: 40,
+    initialHeight: shape.props.promptHeight || 40, // Use the synced height from props
     totalHeight,
     minHeight: 40,
+    onHeightChange: (newHeight) => {
+      // Update the shape prop when height changes
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: { ...shape.props, promptHeight: newHeight },
+      });
+    }
   });
 
   // -- Chat logic below
@@ -69,6 +86,8 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dateCreated: Date.now(),
           color: shape.props.color,
           dash: shape.props.dash,
+          promptHeight: shape.props.promptHeight,
+          isEditing: false,
         },
       });
       connectShapes(editor, shape.id, newShapeId);
@@ -116,6 +135,8 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dateCreated: Date.now(),
           color: shape.props.color,
           dash: shape.props.dash,
+          promptHeight: shape.props.promptHeight,
+          isEditing: false,
         },
       });
       connectShapes(editor, shape.id, newShapeId);
@@ -130,17 +151,28 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   function handleEditMouseDown(e: React.MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
-    setIsEditingResponse(true);
-  }
-
-  function handleResponseBlur() {
-    setIsEditingResponse(false);
+    setLocalIsEditing(true);
     
-    // Ensure store is updated when exiting edit mode
+    // Update the shape prop to sync editing state to other users
     editor.updateShape({
       id: shape.id,
       type: "chat",
-      props: { ...shape.props, response: localResponse },
+      props: { ...shape.props, isEditing: true },
+    });
+  }
+
+  function handleResponseBlur() {
+    setLocalIsEditing(false);
+    
+    // Update the shape prop to sync editing state and content to other users
+    editor.updateShape({
+      id: shape.id,
+      type: "chat",
+      props: { 
+        ...shape.props, 
+        response: localResponse,
+        isEditing: false 
+      },
     });
   }
 
@@ -177,10 +209,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     <ChatShapeView
       shape={shape}
       isLoading={isLoading}
-      isEditingResponse={isEditingResponse}
+      isEditingResponse={localIsEditing}
       localPrompt={localPrompt}
       localResponse={localResponse}
-      promptHeight={promptHeight}
+      promptHeight={shape.props.promptHeight || promptHeight}
       onDividerMouseDown={handleDividerMouseDown}
       onEdit={handleEditMouseDown}
       onResponseBlur={handleResponseBlur}
