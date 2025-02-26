@@ -46,7 +46,6 @@ export const ToastUIEditor: React.FC<ToastUIEditorProps> = ({
     };
   }, [onBlur]);
 
-  // Set up real-time content monitoring with more frequent updates for better responsiveness
   useEffect(() => {
     const instance = editorRef.current?.getInstance();
     if (!instance) return;
