@@ -294,69 +294,37 @@ async function syncBoardToSupabase(userId: string, board: BoardData): Promise<vo
 
 // Helper to ensure a user exists in the database
 export async function ensureUserExists(userId: string): Promise<void> {
-    try {
-      // Check if user exists
-      const { data, error } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', userId)
-        .maybeSingle();
-      
-      if (error) {
-        console.error('Error checking if user exists:', error);
-        throw error;
-      }
-      
-      if (!data) {
-        // Create user record with explicit timestamp
-        const { error: insertError } = await supabase
-          .from('users')
-          .insert({ 
-            id: userId,
-            created_at: new Date().toISOString() 
-          });
-        
-        if (insertError) {
-          console.error('Error creating user in Supabase:', insertError);
-          throw insertError;
-        }
-        
-        // Also create a prompts record - after successful user creation
-        const { error: promptError } = await supabase
-          .from('user_prompts')
-          .insert({ 
-            user_id: userId, 
-            count: 0,
-            last_updated: new Date().toISOString()
-          });
-        
-        if (promptError) {
-          console.error('Error creating user prompts record:', promptError);
-          // Don't throw here, as the user was created successfully
-        }
-      }
-      
-      // Verify user_prompts exists regardless
-      const { data: promptData, error: promptCheckError } = await supabase
-        .from('user_prompts')
-        .select('count')
-        .eq('user_id', userId)
-        .maybeSingle();
-      
-      if (!promptData && !promptCheckError) {
-        // Create missing prompt record if it doesn't exist
-        await supabase
-          .from('user_prompts')
-          .insert({ 
-            user_id: userId, 
-            count: 0,
-            last_updated: new Date().toISOString()
-          });
-      }
-    } catch (err) {
-      console.error('Critical error in ensureUserExists:', err);
-      // Re-throw to allow proper error handling upstream
-      throw err;
+  try {
+    // Attempt to create user record if it doesn't exist
+    const { error: userError } = await supabase
+      .from('users')
+      .upsert({ 
+        id: userId, 
+        created_at: new Date().toISOString() 
+      }, { 
+        onConflict: 'id' 
+      });
+
+    // Ensure user_prompts record exists
+    const { error: promptError } = await supabase
+      .from('user_prompts')
+      .upsert({ 
+        user_id: userId, 
+        count: 0,
+        last_updated: new Date().toISOString() 
+      }, { 
+        onConflict: 'user_id' 
+      });
+
+    if (userError) {
+      console.error('User creation error:', userError);
     }
+
+    if (promptError) {
+      console.error('Prompt count creation error:', promptError);
+    }
+  } catch (err) {
+    console.error('Critical user initialization error:', err);
+    throw err;
   }
-  
+}
