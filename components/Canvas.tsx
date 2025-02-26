@@ -33,7 +33,7 @@ import { QuotaCard } from "@/components/QuotaCard";
 import { getUserBoards, createBoard, renameBoard, userHasAccessToBoard, BoardData } from "@/lib/boardService";
 
 // Replace this with your actual worker URL
-const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:5172";
+const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL;
 
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
@@ -250,11 +250,11 @@ export function Canvas({ userId }: { userId: string }) {
   
   // Create a store connected to multiplayer only if we have a current room
   const store = useSync({
-    uri: currentRoom ? `${WORKER_URL}/connect/${currentRoom.id}` : '',
+    uri: currentRoom && WORKER_URL ? `${WORKER_URL}/connect/${currentRoom.id}` : 'about:blank',
     assets: multiplayerAssetStore,
     shapeUtils: customShapeUtils,
   });
-
+  
   // Show a loading state while initializing
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen">Loading your boards...</div>;
