@@ -34,7 +34,7 @@ import { Pencil } from "lucide-react";
 import { QuotaCard } from "@/components/QuotaCard";
 
 // Replace this with your actual worker URL
-const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:5172";
+const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "";
 
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
