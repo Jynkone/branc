@@ -136,31 +136,28 @@ export async function getUserBoards(userId: string): Promise<BoardData[]> {
 
 export async function createBoard(userId: string, name: string): Promise<BoardData> {
     try {
-      // Ensure user exists first
       await ensureUserExists(userId);
       
       const boardId = `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const now = new Date().toISOString();
       
-      const newBoard = {
-        id: boardId,
-        name,
-        is_shared: true,
-        created_at: now,
-        last_modified_at: now
-      };
-      
-      // Insert into Supabase
+      // Insert into boards table first
       const { error: boardError } = await supabase
         .from('boards')
-        .insert(newBoard);
+        .insert({
+          id: boardId,
+          name,
+          is_shared: true,
+          created_at: now,
+          last_modified_at: now
+        });
       
       if (boardError) {
         console.error('Error creating board in Supabase:', boardError);
         throw boardError;
       }
       
-      // Create user-board relationship
+      // Now create the user-board relationship
       const { error: relationError } = await supabase
         .from('user_boards')
         .insert({
@@ -176,28 +173,6 @@ export async function createBoard(userId: string, name: string): Promise<BoardDa
         throw relationError;
       }
       
-      // During migration, also write to localStorage (remove this later)
-      try {
-        if (typeof window !== 'undefined') {
-          const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
-          let storedBoards = storedBoardsStr ? JSON.parse(storedBoardsStr) : [];
-          
-          const localBoard = {
-            id: boardId,
-            name,
-            isShared: true,
-            owner: userId,
-            createdAt: Date.now()
-          };
-          
-          storedBoards.push(localBoard);
-          localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
-        }
-      } catch (err) {
-        console.error('Error writing to localStorage:', err);
-        // Don't throw here as the database operations were successful
-      }
-      
       return {
         id: boardId,
         name,
@@ -210,7 +185,7 @@ export async function createBoard(userId: string, name: string): Promise<BoardDa
       throw err;
     }
   }
-// Rename a board
+  // Rename a board
 export async function renameBoard(userId: string, boardId: string, newName: string): Promise<void> {
   // Update in Supabase
   const { error } = await supabase
@@ -294,37 +269,38 @@ async function syncBoardToSupabase(userId: string, board: BoardData): Promise<vo
 
 // Helper to ensure a user exists in the database
 export async function ensureUserExists(userId: string): Promise<void> {
-  try {
-    // Attempt to create user record if it doesn't exist
-    const { error: userError } = await supabase
-      .from('users')
-      .upsert({ 
-        id: userId, 
-        created_at: new Date().toISOString() 
-      }, { 
-        onConflict: 'id' 
-      });
-
-    // Ensure user_prompts record exists
-    const { error: promptError } = await supabase
-      .from('user_prompts')
-      .upsert({ 
-        user_id: userId, 
-        count: 0,
-        last_updated: new Date().toISOString() 
-      }, { 
-        onConflict: 'user_id' 
-      });
-
-    if (userError) {
-      console.error('User creation error:', userError);
+    try {
+      const { error: userError } = await supabase
+        .from('users')
+        .upsert({ 
+          id: userId, 
+          created_at: new Date().toISOString() 
+        }, { 
+          onConflict: 'id' 
+        });
+  
+      if (userError) {
+        console.error('User creation error:', userError);
+        throw userError;
+      }
+  
+      const { error: promptError } = await supabase
+        .from('user_prompts')
+        .upsert({ 
+          user_id: userId, 
+          count: 0,
+          last_updated: new Date().toISOString() 
+        }, { 
+          onConflict: 'user_id' 
+        });
+  
+      if (promptError) {
+        console.error('Prompt count creation error:', promptError);
+        throw promptError;
+      }
+    } catch (err) {
+      console.error('Critical user initialization error:', err);
+      throw err;
     }
-
-    if (promptError) {
-      console.error('Prompt count creation error:', promptError);
-    }
-  } catch (err) {
-    console.error('Critical user initialization error:', err);
-    throw err;
   }
-}
+  

@@ -3,15 +3,19 @@ import { GEMINI_MODEL } from "@/ai/models";
 import { createClient } from "@/ai/client";
 import { systemPrompt } from "@/ai/prompt";
 import { getAuth } from "@clerk/nextjs/server";
-import { userPromptCounts } from "@/lib/quotaStore";
+import { getUserPromptCount, incrementUserPromptCount } from "@/lib/quotaService";
+import { ensureUserExists } from "@/lib/boardService";
 
 export async function POST(req: NextRequest) {
   try {
-    // Rollback: Use real Clerk authentication
+    // Use real Clerk authentication
     const { userId } = getAuth(req);
     if (!userId) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+
+    // Ensure user exists in Supabase first
+    await ensureUserExists(userId);
 
     const { prompt, context } = await req.json();
     if (!prompt || prompt.trim() === "") {
@@ -21,8 +25,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const currentCount = userPromptCounts[userId] || 0;
-    if (currentCount >= 50) {
+    // Check quota against Supabase
+    const { count, limit } = await getUserPromptCount(userId);
+    if (count >= limit) {
       return NextResponse.json(
         { error: "You have reached your prompt limit of 50. Please upgrade or try again later." },
         { status: 403 }
@@ -42,9 +47,9 @@ export async function POST(req: NextRequest) {
     const result = await model.generateContent(fullPrompt);
     const responseText = result.response.text();
 
-    // Only count the prompt if a valid response is generated
+    // Only increment the prompt count if a valid response is generated
     if (responseText && responseText.trim() !== "") {
-      userPromptCounts[userId] = currentCount + 1;
+      await incrementUserPromptCount(userId);
     } else {
       return NextResponse.json(
         { error: "Failed to generate a valid response." },
@@ -52,7 +57,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ response: responseText, count: userPromptCounts[userId] });
+    // Get updated count after increment
+    const { count: newCount } = await getUserPromptCount(userId);
+    
+    return NextResponse.json({ response: responseText, count: newCount });
   } catch (error) {
     console.error("Error in /api/chat:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

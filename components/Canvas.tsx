@@ -29,9 +29,8 @@ import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Pencil } from "lucide-react";
-
-// Import the unified QuotaCard component
 import { QuotaCard } from "@/components/QuotaCard";
+import { getUserBoards, createBoard, renameBoard, userHasAccessToBoard, BoardData } from "@/lib/boardService";
 
 // Replace this with your actual worker URL
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:5172";
@@ -82,35 +81,10 @@ const customAssetUrls: TLUiAssetUrlOverrides = {
 
 const customTools = [chatTool];
 
-// Type for our room data
-interface RoomData {
-  id: string;
-  name: string;
-  isShared: boolean;
-  owner: string;
-  createdAt: number;
-}
-
 // Function to generate user's default board ID
 // This is deterministic - will always create the same ID for the same user
 const getDefaultBoardId = (userId: string) => {
   return `user-${userId}-default-board`;
-};
-
-// Generate a shareable board ID that can be accessed by anyone with the link
-const generateShareableBoardId = () => {
-  return `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-};
-
-// Create a new board
-const createNewBoard = (userId: string, name: string) => {
-  return {
-    id: generateShareableBoardId(),
-    name,
-    isShared: true,
-    owner: userId,
-    createdAt: Date.now(),
-  };
 };
 
 export function Canvas({ userId }: { userId: string }) {
@@ -121,8 +95,8 @@ export function Canvas({ userId }: { userId: string }) {
   const sharedBoardId = searchParams.get('board');
   
   // State for the current room and all available rooms
-  const [currentRoom, setCurrentRoom] = useState<RoomData | null>(null);
-  const [availableRooms, setAvailableRooms] = useState<RoomData[]>([]);
+  const [currentRoom, setCurrentRoom] = useState<BoardData | null>(null);
+  const [availableRooms, setAvailableRooms] = useState<BoardData[]>([]);
   
   // State for dialogs
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
@@ -131,6 +105,7 @@ export function Canvas({ userId }: { userId: string }) {
   const [newBoardName, setNewBoardName] = useState('New Board');
   const [shareLink, setShareLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Ref for the rename input
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -139,77 +114,42 @@ export function Canvas({ userId }: { userId: string }) {
   useEffect(() => {
     if (!userId) return;
     
-    // Handle initialization
+    // Use a ref to track if we're in the middle of a board change to prevent double creation
+    const isChangingRef = useRef(false);
+    
+    if (isChangingRef.current) return;
+    
+    setIsLoading(true);
+    isChangingRef.current = true;
+    
+    // Rest of the function unchanged
+    
     const initializeRooms = async () => {
-      const storedBoardsStr = localStorage.getItem(`branc-known-boards-${userId}`);
-      let storedBoards: RoomData[] = [];
-      
-      if (storedBoardsStr) {
-        try {
-          storedBoards = JSON.parse(storedBoardsStr);
-        } catch (err) {
-          console.error("Error parsing stored boards:", err);
-        }
-      }
-      
-      // Check if default board exists
-      const defaultBoardId = getDefaultBoardId(userId);
-      let defaultBoard = storedBoards.find(board => board.id === defaultBoardId);
-      
-      if (!defaultBoard) {
-        // Create the default board if it doesn't exist
-        defaultBoard = {
-          id: defaultBoardId,
-          name: "My First Board",
-          isShared: false,
-          owner: userId,
-          createdAt: Date.now(),
-        };
+      try {
+        const boards = await getUserBoards(userId);
         
-        storedBoards.push(defaultBoard);
-        localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
-      }
-      
-      // If we have a shared board ID in the URL, prioritize that
-      if (sharedBoardId) {
-        // Check if we already know about this board
-        let sharedBoard = storedBoards.find(board => board.id === sharedBoardId);
+        // Rest of the code unchanged
         
-        if (!sharedBoard) {
-          // This is a new shared board to us
-          sharedBoard = {
-            id: sharedBoardId,
-            name: `Shared Board`,
-            isShared: true,
-            owner: 'unknown', // We don't know who the owner is
-            createdAt: Date.now(),
-          };
-          
-          storedBoards.push(sharedBoard);
-          localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(storedBoards));
-        }
-        
-        setAvailableRooms(storedBoards);
-        setCurrentRoom(sharedBoard);
-        console.log("Setting shared board as current:", sharedBoard);
-      } else {
-        // No shared board ID in URL, use default
-        setAvailableRooms(storedBoards);
-        setCurrentRoom(defaultBoard);
-        console.log("Setting default board as current:", defaultBoard);
+      } catch (err) {
+        console.error("Error initializing boards:", err);
+        setAvailableRooms([]);
+        setCurrentRoom(null);
+      } finally {
+        setIsLoading(false);
+        isChangingRef.current = false;
       }
     };
     
     initializeRooms();
-  }, [userId, sharedBoardId]);
-  
+  }, [userId, sharedBoardId, router]);
+    
   // Function to handle room change
   const handleRoomChange = (roomId: string) => {
     const selectedRoom = availableRooms.find(room => room.id === roomId);
     if (selectedRoom) {
       setCurrentRoom(selectedRoom);
       // Update the URL to reflect the current board
-      if (selectedRoom.isShared) {
+      if (selectedRoom.isShared || !selectedRoom.id.startsWith('user-')) {
         router.push(`/?board=${selectedRoom.id}`);
       } else {
         router.push('/');
@@ -218,42 +158,53 @@ export function Canvas({ userId }: { userId: string }) {
   };
   
   // Function to create a new board
-  const handleCreateNewBoard = () => {
+  const handleCreateNewBoard = async () => {
     if (!userId || !newBoardName.trim()) {
       setIsNewBoardDialogOpen(false);
       return;
     }
     
-    const newBoard = createNewBoard(userId, newBoardName);
-    
-    const updatedRooms = [...availableRooms, newBoard];
-    localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
-    
-    setAvailableRooms(updatedRooms);
-    setCurrentRoom(newBoard);
-    setIsNewBoardDialogOpen(false);
-    setNewBoardName('New Board');
-    
-    // Update URL for the new shared board
-    router.push(`/?board=${newBoard.id}`);
+    try {
+      // Create the board in Supabase
+      const newBoard = await createBoard(userId, newBoardName);
+      
+      const updatedRooms = [...availableRooms, newBoard];
+      setAvailableRooms(updatedRooms);
+      setCurrentRoom(newBoard);
+      
+      // Update URL for the new shared board
+      router.push(`/?board=${newBoard.id}`);
+    } catch (err) {
+      console.error("Error creating new board:", err);
+    } finally {
+      setIsNewBoardDialogOpen(false);
+      setNewBoardName('New Board');
+    }
   };
   
   // Function to handle renaming a board
-  const handleRenameBoard = () => {
-    if (!currentRoom || !newBoardName.trim()) {
+  const handleRenameBoard = async () => {
+    if (!currentRoom || !newBoardName.trim() || !userId) {
       setIsRenamingBoard(false);
       return;
     }
     
-    const updatedRoom = { ...currentRoom, name: newBoardName };
-    const updatedRooms = availableRooms.map(room => 
-      room.id === currentRoom.id ? updatedRoom : room
-    );
-    
-    localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
-    setAvailableRooms(updatedRooms);
-    setCurrentRoom(updatedRoom);
-    setIsRenamingBoard(false);
+    try {
+      // Update the board name in Supabase
+      await renameBoard(userId, currentRoom.id, newBoardName);
+      
+      const updatedRoom = { ...currentRoom, name: newBoardName };
+      const updatedRooms = availableRooms.map(room => 
+        room.id === currentRoom.id ? updatedRoom : room
+      );
+      
+      setAvailableRooms(updatedRooms);
+      setCurrentRoom(updatedRoom);
+    } catch (err) {
+      console.error("Error renaming board:", err);
+    } finally {
+      setIsRenamingBoard(false);
+    }
   };
   
   // Focus the rename input when it becomes visible
@@ -275,18 +226,6 @@ export function Canvas({ userId }: { userId: string }) {
   // Function to generate and show share link
   const handleShareBoard = () => {
     if (!currentRoom) return;
-    
-    // Always ensure the board is marked as shared
-    if (!currentRoom.isShared) {
-      const updatedRoom = { ...currentRoom, isShared: true };
-      const updatedRooms = availableRooms.map(room => 
-        room.id === currentRoom.id ? updatedRoom : room
-      );
-      
-      localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
-      setAvailableRooms(updatedRooms);
-      setCurrentRoom(updatedRoom);
-    }
     
     // Generate a shareable link for the current board
     const link = `${window.location.origin}/?board=${currentRoom.id}`;
@@ -316,9 +255,14 @@ export function Canvas({ userId }: { userId: string }) {
     shapeUtils: customShapeUtils,
   });
 
+  // Show a loading state while initializing
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-screen">Loading your boards...</div>;
+  }
+
   // Only render the full UI if we have a current room
   if (!currentRoom) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+    return <div className="flex items-center justify-center h-screen">Unable to load board. Please try again.</div>;
   }
 
   return (
