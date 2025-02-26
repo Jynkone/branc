@@ -1,10 +1,13 @@
-// chatshape/hooks/useChatAPI.ts
+// components/chatshape/hooks/useChatAPI.ts
 import { useState } from 'react'
 
 export function useChatAPI() {
   const [isLoading, setIsLoading] = useState(false)
 
-  async function getChatResponse(prompt: string, context?: string): Promise<string> {
+  async function getChatResponse(prompt: string, context?: string): Promise<{
+    response: string;
+    followUpQuestions?: string[];
+  }> {
     setIsLoading(true)
     try {
       const res = await fetch('/api/chat', {
@@ -14,11 +17,14 @@ export function useChatAPI() {
       })
       const data = await res.json()
       setIsLoading(false)
-      return data.response || ''
+      return {
+        response: data.response || '',
+        followUpQuestions: data.followUpQuestions || []
+      }
     } catch (error) {
       setIsLoading(false)
       console.error('Error fetching chat response:', error)
-      return ''
+      return { response: '' }
     }
   }
 

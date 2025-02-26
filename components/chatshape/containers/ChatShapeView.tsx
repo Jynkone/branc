@@ -1,4 +1,4 @@
-// chatshape/containers/ChatShapeView.tsx
+// components/chatshape/containers/ChatShapeView.tsx
 import React from "react"
 import { HTMLContainer, toDomPrecision, useDefaultColorTheme } from "tldraw"
 import { ChatShapeHeader } from "../components/ChatShapeHeader"
@@ -13,6 +13,7 @@ type Props = {
   localPrompt: string
   localResponse: string
   promptHeight: number
+  hideResponse?: boolean
   onDividerMouseDown: (e: React.MouseEvent) => void
   onEdit: (e: React.MouseEvent<HTMLButtonElement>) => void
   onResponseBlur: () => void
@@ -29,6 +30,7 @@ export function ChatShapeView({
   localPrompt,
   localResponse,
   promptHeight,
+  hideResponse = false,
   onDividerMouseDown,
   onEdit,
   onResponseBlur,
@@ -46,6 +48,12 @@ export function ChatShapeView({
   if (shape.props.dash === "dashed") borderStyle = "dashed"
   if (shape.props.dash === "dotted") borderStyle = "dotted"
   const backgroundColor = "#F9FAFB"
+  
+  // Apply opacity based on whether it's a suggestion and its generation
+  let opacity = 1;
+  if (shape.props.isSuggestion) {
+    opacity = shape.props.suggestionGeneration === 1 ? 0.6 : 0.3;
+  }
 
   return (
     <div style={{ position: "relative" }}>
@@ -84,6 +92,7 @@ export function ChatShapeView({
           border: `3px ${borderStyle} ${strokeColor}`,
           borderRadius: "8px",
           boxSizing: "border-box",
+          opacity: opacity,
         }}
         onPointerDown={(e) => {
           // When editing the AI response, block pointer events from selecting the shape
@@ -93,45 +102,53 @@ export function ChatShapeView({
         {/* Header fixed at top */}
         <ChatShapeHeader strokeColor={strokeColor} onContextClick={onContextSend} />
 
-        {/* AI response region using flex: 1 */}
-        <div style={{ flex: 1, overflow: "auto" }}>
-          <ChatShapeContent
-            response={localResponse}
-            isEditing={isEditingResponse}
-            height={-1} // Fallback value indicating "fill available height"
-            onChange={onResponseUpdate}
-            onBlur={onResponseBlur}
-            onEdit={onEdit}
-          />
-        </div>
+        {/* AI response region using flex: 1 - hide if this is a suggestion and hideResponse is true */}
+        {!hideResponse && (
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <ChatShapeContent
+              response={localResponse}
+              isEditing={isEditingResponse}
+              height={-1} // Fallback value indicating "fill available height"
+              onChange={onResponseUpdate}
+              onBlur={onResponseBlur}
+              onEdit={onEdit}
+            />
+          </div>
+        )}
 
-        {/* Divider with thin 1px black lines and diamond SVG as the handle */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            height: "16px",
-            userSelect: "none",
-          }}
-        >
-          <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
-          <img
-            src="/Group 32956.svg" // Ensure this path is correct
-            alt="Resize handle"
-            onMouseDown={onDividerMouseDown}
+        {/* Divider - only show if response area is visible */}
+        {!hideResponse && (
+          <div
             style={{
-              width: "16px",
+              display: "flex",
+              alignItems: "center",
               height: "16px",
-              margin: "0 8px",
-              cursor: "ns-resize",
               userSelect: "none",
             }}
-          />
-          <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
-        </div>
+          >
+            <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
+            <img
+              src="/Group 32956.svg"
+              alt="Resize handle"
+              onMouseDown={onDividerMouseDown}
+              style={{
+                width: "16px",
+                height: "16px",
+                margin: "0 8px",
+                cursor: "ns-resize",
+                userSelect: "none",
+              }}
+            />
+            <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
+          </div>
+        )}
 
-        {/* Prompt region pinned at bottom */}
-        <div style={{ height: promptHeight, overflow: "auto" }}>
+        {/* Prompt region - if hideResponse, this should take all available space */}
+        <div style={{ 
+          height: hideResponse ? "calc(100% - 32px)" : promptHeight, 
+          overflow: "auto",
+          flex: hideResponse ? 1 : undefined
+        }}>
           <ChatShapeFooter
             prompt={localPrompt}
             onChange={onPromptChange}

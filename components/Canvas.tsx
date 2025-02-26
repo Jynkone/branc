@@ -34,7 +34,7 @@ import { Pencil } from "lucide-react";
 import { QuotaCard } from "@/components/QuotaCard";
 
 // Replace this with your actual worker URL
-const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "";
+const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "https://branc.ajeenkya29.workers.dev";
 console.log("WORKER_URL in production:", WORKER_URL);
 
 
@@ -309,18 +309,20 @@ export function Canvas({ userId }: { userId: string }) {
   };
   
   // Set up the sync store with our custom shape
-  const customShapeUtils = useMemo(() => [ChatShapeUtil, ...defaultShapeUtils], []);
-  
+  const customShapeUtils = useMemo(() => {
+    // Explicitly type as TLAnyShapeUtilConstructor[]
+    return [ChatShapeUtil, ...defaultShapeUtils] as any;
+  }, []);
+    
   // Create a store connected to multiplayer only if we have a current room
-  const connectionUri = currentRoom && WORKER_URL 
-  ? `${WORKER_URL}/connect/${currentRoom.id}` 
-  : "about:blank"; // Valid dummy URL
-
-const store = useSync({
-  uri: connectionUri,
-  assets: multiplayerAssetStore,
-  shapeUtils: customShapeUtils,
-});
+  const store = useSync({
+    // Don't try to modify the protocol - TLDraw handles this internally
+    uri: currentRoom && WORKER_URL ? 
+      `${WORKER_URL}/connect/${currentRoom.id}` : 
+      '',
+    assets: multiplayerAssetStore,
+    shapeUtils: customShapeUtils,
+  });
     
   // Only render the full UI if we have a current room
   if (!currentRoom) {
@@ -398,7 +400,7 @@ const store = useSync({
 
       <Tldraw
         store={store}
-        shapeUtils={[ChatShapeUtil]}
+        shapeUtils={[ChatShapeUtil] as any}
         hideUi={false}
         tools={customTools}
         initialState="select"

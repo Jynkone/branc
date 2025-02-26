@@ -1,3 +1,4 @@
+// worker/schemas/chatShapeSchema.ts
 import { DefaultColorStyle, DefaultDashStyle } from '@tldraw/tlschema'
 
 // Define the schema in the simplest way possible that will work with most tldraw versions
@@ -12,12 +13,16 @@ export const chatShapeSchema = {
     dateCreated: { type: 'number', validate: (v: any) => typeof v === 'number' },
     promptHeight: { type: 'number', validate: (v: any) => typeof v === 'number' },
     isEditing: { type: 'boolean', validate: (v: any) => typeof v === 'boolean' },
+    parentId: { type: 'string', validate: (v: any) => v === undefined || typeof v === 'string' },
+    isSuggestion: { type: 'boolean', validate: (v: any) => v === undefined || typeof v === 'boolean' },
+    suggestionGeneration: { type: 'number', validate: (v: any) => v === undefined || typeof v === 'number' },
+    hideResponse: { type: 'boolean', validate: (v: any) => v === undefined || typeof v === 'boolean' },
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
   },
   migrations: {
     firstVersion: 0,
-    currentVersion: 2,
+    currentVersion: 3,
     migrators: {
       1: {
         up: (shape: any): any => {
@@ -35,14 +40,25 @@ export const chatShapeSchema = {
       },
       2: {
         up: (shape: any): any => {
-          // Add the new properties with default values if they don't exist
           if (shape.props.promptHeight === undefined) shape.props.promptHeight = 40;
           if (shape.props.isEditing === undefined) shape.props.isEditing = false;
           return shape;
         },
         down: (shape: any): any => {
-          // Remove the new properties when downgrading
           const { promptHeight, isEditing, ...props } = shape.props;
+          return { ...shape, props };
+        }
+      },
+      3: {
+        up: (shape: any): any => {
+          if (shape.props.parentId === undefined) shape.props.parentId = undefined;
+          if (shape.props.isSuggestion === undefined) shape.props.isSuggestion = false;
+          if (shape.props.suggestionGeneration === undefined) shape.props.suggestionGeneration = undefined;
+          if (shape.props.hideResponse === undefined) shape.props.hideResponse = false;
+          return shape;
+        },
+        down: (shape: any): any => {
+          const { parentId, isSuggestion, suggestionGeneration, hideResponse, ...props } = shape.props;
           return { ...shape, props };
         }
       }

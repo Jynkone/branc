@@ -1,4 +1,4 @@
-// chatshape/ChatShapeUtil.tsx
+// components/chatshape/ChatShapeUtil.tsx
 import React from "react";
 import {
   BaseBoxShapeUtil,
@@ -14,7 +14,7 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
   static isFillable = false;
   static styles = ["color", "dash"];
 
-  // IMPORTANT: Use the proper validator objects instead of literal defaults!
+  // IMPORTANT: Fix the prop validators to match expected types
   static override props = {
     w: T.number,
     h: T.number,
@@ -26,11 +26,16 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
     isEditing: T.boolean,
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
+    // Use a different way to define optional properties
+    parentId: T.string,
+    isSuggestion: T.boolean,
+    suggestionGeneration: T.number,
+    hideResponse: T.boolean,
   };
 
   static override migrations = {
     firstVersion: 0,
-    currentVersion: 2,
+    currentVersion: 3,
     migrators: {
       1: {
         up: (shape: any): any => {
@@ -54,6 +59,19 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
         },
         down: (shape: any): any => shape,
       },
+      3: {
+        up: (shape: any): any => {
+          if (shape.props.parentId === undefined) shape.props.parentId = undefined;
+          if (shape.props.isSuggestion === undefined) shape.props.isSuggestion = false;
+          if (shape.props.suggestionGeneration === undefined) shape.props.suggestionGeneration = undefined;
+          if (shape.props.hideResponse === undefined) shape.props.hideResponse = false;
+          return shape;
+        },
+        down: (shape: any): any => {
+          const { parentId, isSuggestion, suggestionGeneration, hideResponse, ...props } = shape.props;
+          return { ...shape, props };
+        },
+      },
     },
   };
 
@@ -69,6 +87,11 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       isEditing: false,
       color: "black",
       dash: "draw",
+      // Default values for optional props
+      parentId: undefined,
+      isSuggestion: false,
+      suggestionGeneration: 0,
+      hideResponse: false,
     };
   }
 
