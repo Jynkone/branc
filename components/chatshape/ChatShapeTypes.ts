@@ -1,9 +1,6 @@
-// chatshape/ChatShapeTypes.ts
+// components/chatshape/ChatShapeTypes.ts
 import { TLBaseShape, TLDefaultColorStyle, TLDefaultDashStyle } from "tldraw"
 
-/**
- * Defines the ChatShape type.
- */
 export type ChatShape = TLBaseShape<
   "chat",
   {
@@ -15,5 +12,14 @@ export type ChatShape = TLBaseShape<
     dateCreated: number
     color: TLDefaultColorStyle
     dash: TLDefaultDashStyle
+    
+    // Synchronized state properties
+    promptHeight: number
+    isEditingResponse: boolean
+    editedResponseText: string
+    
+    // Additional synchronization properties
+    editedResponseMarkdown?: string  // For Toast UI Editor
+    lastEditTimestamp: number        // To track last edit
   }
 >
