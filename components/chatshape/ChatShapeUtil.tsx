@@ -8,13 +8,15 @@ import {
 } from "tldraw";
 import { ChatShape } from "./ChatShapeTypes";
 import { ChatShapeContainer } from "./containers/ChatShapeContainer";
+import { TLShapeId } from "@tldraw/tlschema";
+
 
 export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
   static override type = "chat" as const;
   static isFillable = false;
   static styles = ["color", "dash"];
 
-  // IMPORTANT: Fix the prop validators to match expected types
+  // Define the properties using tldraw validators.
   static override props = {
     w: T.number,
     h: T.number,
@@ -26,8 +28,7 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
     isEditing: T.boolean,
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
-    // Use a different way to define optional properties
-    parentId: T.string,
+    parentId: T.string, // now required as a string
     isSuggestion: T.boolean,
     suggestionGeneration: T.number,
     hideResponse: T.boolean,
@@ -61,9 +62,9 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       },
       3: {
         up: (shape: any): any => {
-          if (shape.props.parentId === undefined) shape.props.parentId = undefined;
+          if (shape.props.parentId === undefined) shape.props.parentId = "" as TLShapeId;
           if (shape.props.isSuggestion === undefined) shape.props.isSuggestion = false;
-          if (shape.props.suggestionGeneration === undefined) shape.props.suggestionGeneration = undefined;
+          if (shape.props.suggestionGeneration === undefined) shape.props.suggestionGeneration = 0;
           if (shape.props.hideResponse === undefined) shape.props.hideResponse = false;
           return shape;
         },
@@ -74,7 +75,7 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       },
     },
   };
-
+  
   getDefaultProps(): ChatShape["props"] {
     return {
       w: 300,
@@ -87,14 +88,13 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       isEditing: false,
       color: "black",
       dash: "draw",
-      // Default values for optional props
-      parentId: undefined,
+      parentId: "" as TLShapeId, // Cast default to TLShapeId
       isSuggestion: false,
       suggestionGeneration: 0,
       hideResponse: false,
     };
   }
-
+  
   override canEdit = () => true;
   override isAspectRatioLocked = () => false;
   override canResize = () => true;

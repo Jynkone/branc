@@ -80,6 +80,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
 
+      // When creating a new "normal" chat shape, explicitly set parentId to "" (empty string)
       editor.createShape({
         id: newShapeId,
         type: "chat",
@@ -96,9 +97,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
           isEditing: false,
+          parentId: "", // <-- default for non-suggestions
         },
       });
-      // Cast shape.id and newShapeId to TLShapeId
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
 
       // After creating the response shape, create suggestion boxes if there are follow-up questions
@@ -135,6 +136,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const suggestionId = makeShapeID();
       suggestionIds.push(suggestionId);
 
+      // For suggestion boxes, set parentId to the actual parent's ID
       editor.createShape({
         id: suggestionId,
         type: "chat",
@@ -151,7 +153,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dash: parentShape.props.dash,
           promptHeight: parentShape.props.promptHeight,
           isEditing: false,
-          parentId: parentId, // Correctly typed as TLShapeId
+          parentId: parentId, // <-- parent's ID for suggestions
           isSuggestion: true,
           suggestionGeneration: generation,
           hideResponse: true,
@@ -220,6 +222,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
           isEditing: false,
+          parentId: "", // <-- default for non-suggestions
         },
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
