@@ -1,6 +1,7 @@
 import { TLAssetStore, uniqueId } from 'tldraw'
 
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "";
+console.log("WORKER_URL in production:multiplayerAsset", WORKER_URL);
 
 // How does our server handle assets like images and videos?
 export const multiplayerAssetStore: TLAssetStore = {

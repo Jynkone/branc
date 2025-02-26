@@ -35,6 +35,8 @@ import { QuotaCard } from "@/components/QuotaCard";
 
 // Replace this with your actual worker URL
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "";
+console.log("WORKER_URL in production:", WORKER_URL);
+
 
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
