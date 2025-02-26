@@ -311,15 +311,14 @@ export function Canvas({ userId }: { userId: string }) {
   
   // Create a store connected to multiplayer only if we have a current room
   const store = useSync({
+    // Don't try to modify the protocol - TLDraw handles this internally
     uri: currentRoom && WORKER_URL ? 
-      // Only use the URI if both currentRoom and WORKER_URL exist
-      new URL(`connect/${currentRoom.id}`, WORKER_URL).toString() : 
-      // Otherwise, use an empty string to disable sync
+      `${WORKER_URL}/connect/${currentRoom.id}` : 
       '',
     assets: multiplayerAssetStore,
     shapeUtils: customShapeUtils,
   });
-  
+    
   // Only render the full UI if we have a current room
   if (!currentRoom) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
