@@ -68,7 +68,7 @@ export function connectShapes(
     index: ('a1V' as unknown) as TLArrowShape['index'],
     parentId: ('page' as unknown) as TLArrowShape['parentId'],
     isLocked: false,
-    opacity: isSuggestion ? 0.55 : 1, // Match initial suggestion opacity
+    opacity: isSuggestion ? 0.75 : 1, // Match initial suggestion opacity
     meta: isSuggestion
       ? ({
           isSuggestion: true,

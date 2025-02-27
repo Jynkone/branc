@@ -1,3 +1,4 @@
+// lib/ChatShapeView.tsx
 import React from "react";
 import { HTMLContainer, toDomPrecision, useDefaultColorTheme } from "tldraw";
 import { ChatShapeHeader } from "../components/ChatShapeHeader";
@@ -47,26 +48,23 @@ export function ChatShapeView({
   if (shape.props?.dash === "dotted") borderStyle = "dotted";
   const backgroundColor = "#F9FAFB";
 
-  // Conditional sizing: if this is a suggestion, use 45% of the default height; otherwise, use full height.
-  const defaultHeight = shape.props.h;
-  const containerHeight = shape.props.isSuggestion ? `${defaultHeight * 0.45}px` : toDomPrecision(defaultHeight);
-
   // Determine opacity.
   let opacity = 1;
   if (shape.type === "arrow") {
+    // For arrows, use meta.
     const suggestionMeta = shape.meta as any;
     if (suggestionMeta?.isSuggestion) {
       if (suggestionMeta.suggestionGeneration === 2) {
-        opacity = 0.55;
+        opacity = 0.75;
       } else if (suggestionMeta.suggestionGeneration === 1) {
-        opacity = 0.25;
+        opacity = 0.4;
       }
     }
   } else if (shape.props?.isSuggestion) {
     if (shape.props.suggestionGeneration === 2) {
-      opacity = 0.55;
+      opacity = 0.75;
     } else if (shape.props.suggestionGeneration === 1) {
-      opacity = 0.25;
+      opacity = 0.4;
     }
   }
 
@@ -79,7 +77,7 @@ export function ChatShapeView({
           pointerEvents: "auto",
           width: toDomPrecision(shape.props?.w || 0),
           height: toDomPrecision(shape.props?.h || 0),
-          position: "absolute",
+          position: "absolute", // arrows are absolutely positioned
           opacity: opacity,
         }}
       >
@@ -108,6 +106,7 @@ export function ChatShapeView({
     );
   }
 
+  // Render regular chat shape view.
   return (
     <div style={{ position: "relative" }}>
       {isLoading && (
@@ -137,7 +136,7 @@ export function ChatShapeView({
         style={{
           pointerEvents: "auto",
           width: toDomPrecision(shape.props.w),
-          height: containerHeight,
+          height: toDomPrecision(shape.props.h),
           display: "flex",
           flexDirection: "column",
           position: "relative",
@@ -164,17 +163,16 @@ export function ChatShapeView({
             />
           </div>
         )}
-        {/* Divider: reduce height to 1px */}
         {!hideResponse && (
           <div
             style={{
               display: "flex",
-              alignItems: "flex-start", // top align the play button
+              alignItems: "center",
               height: "16px",
               userSelect: "none",
             }}
           >
-            <div style={{ flex: 1, height: "1px", backgroundColor: "black" }} />
+            <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
             <img
               src="/Group 32956.svg"
               alt="Resize handle"
@@ -187,7 +185,7 @@ export function ChatShapeView({
                 userSelect: "none",
               }}
             />
-            <div style={{ flex: 1, height: "1px", backgroundColor: "black" }} />
+            <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
           </div>
         )}
         <div
