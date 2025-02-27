@@ -20,12 +20,13 @@ import type { Editor } from 'tldraw'
  * @param editor The editor instance.
  * @param parentBoxId The TLShapeId of the parent box.
  * @param childBoxId The TLShapeId of the child box.
+ * @returns The ID of the created arrow shape.
  */
 export function connectShapes(
   editor: Editor,
   parentBoxId: TLShapeId,
   childBoxId: TLShapeId
-): void {
+): TLShapeId {
   // Minimal arrow properties.
   const arrowProps: TLArrowShapeProps = {
     bend: 0,
@@ -100,4 +101,7 @@ export function connectShapes(
   ]
 
   editor.createBindings(bindings)
+  
+  // Return the arrow's ID so it can be further modified if needed
+  return arrowShapeId
 }
