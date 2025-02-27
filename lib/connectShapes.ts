@@ -1,3 +1,4 @@
+// lib/connectShapes.ts
 import type {
   TLArrowShape,
   TLArrowShapeProps,
@@ -8,6 +9,9 @@ import type { Editor } from 'tldraw'
 
 /**
  * Creates a new arrow shape that connects a parent box (start) to a child box (end).
+ *
+ * If either the parent or child shape is marked as a suggestion (via a custom property),
+ * the arrow's meta field will be set to include { isSuggestion: true, suggestionGeneration: 2 }.
  *
  * @param editor The editor instance.
  * @param parentBoxId The TLShapeId of the parent box.
@@ -30,16 +34,26 @@ export function connectShapes(
     end: { x: 0, y: 0 },
     labelColor: 'black',
     color: 'black',
-    dash: 'solid', // Allowed values: "solid" | "dashed" | "dotted" | "draw"
-    font: 'sans',  // Allowed values: "draw" | "mono" | "sans" | "serif"
+    dash: 'solid',
+    font: 'sans',
     text: '',
     labelPosition: 0,
   }
 
-  // Generate an arrow shape ID with the required "shape:" prefix.
+  // Generate an arrow shape ID.
   const arrowShapeId = ('shape:arrow:' + Math.random().toString(36).slice(2, 10)) as TLShapeId
 
-  // Create an arrow shape using minimal required properties.
+  // Retrieve the parent and child shapes.
+  const parentShape = editor.getShape(parentBoxId)
+  const childShape = editor.getShape(childBoxId)
+
+  // Check for our custom suggestion flag in the parent's or child's props.
+  // Cast props as any to avoid type errors.
+  const isSuggestion =
+    (parentShape && ((parentShape.props as any)?.isSuggestion)) ||
+    (childShape && ((childShape.props as any)?.isSuggestion))
+
+  // Create the arrow shape.
   const arrowShape: TLArrowShape = {
     id: arrowShapeId,
     type: 'arrow',
@@ -51,15 +65,16 @@ export function connectShapes(
     parentId: ('page' as unknown) as TLArrowShape['parentId'],
     isLocked: false,
     opacity: 1,
-    meta: {},
+    // Use the meta field to store custom suggestion metadata.
+    meta: isSuggestion
+      ? ({ isSuggestion: true, suggestionGeneration: 2 } as any)
+      : {},
     typeName: 'shape',
   }
 
-  // Create the arrow shape.
   editor.createShape(arrowShape)
 
-  // Create two bindings: one for the start (connecting to the parent box)
-  // and one for the end (connecting to the child box).
+  // Create bindings for the arrow's start and end.
   const bindings: TLBindingCreate[] = [
     {
       id: ('binding:' + arrowShapeId + '-start') as any,
