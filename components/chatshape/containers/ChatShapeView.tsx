@@ -49,10 +49,16 @@ export function ChatShapeView({
   if (shape.props.dash === "dotted") borderStyle = "dotted"
   const backgroundColor = "#F9FAFB"
   
-  // Apply opacity based on whether it's a suggestion and its generation
+  // Set opacity based on suggestion generation
   let opacity = 1;
   if (shape.props.isSuggestion) {
-    opacity = shape.props.suggestionGeneration === 1 ? 0.6 : 0.3;
+    if (shape.props.suggestionGeneration === 2) {
+      // Active suggestions: 50-60% opaque
+      opacity = 0.55;
+    } else if (shape.props.suggestionGeneration === 1) {
+      // Last suggestions: 20-30% opaque
+      opacity = 0.25;
+    }
   }
 
   return (
@@ -95,20 +101,19 @@ export function ChatShapeView({
           opacity: opacity,
         }}
         onPointerDown={(e) => {
-          // When editing the AI response, block pointer events from selecting the shape
-          if (isEditingResponse) e.stopPropagation()
+          if (isEditingResponse) e.stopPropagation();
         }}
       >
         {/* Header fixed at top */}
         <ChatShapeHeader strokeColor={strokeColor} onContextClick={onContextSend} />
 
-        {/* AI response region using flex: 1 - hide if this is a suggestion and hideResponse is true */}
+        {/* AI response region */}
         {!hideResponse && (
           <div style={{ flex: 1, overflow: "auto" }}>
             <ChatShapeContent
               response={localResponse}
               isEditing={isEditingResponse}
-              height={-1} // Fallback value indicating "fill available height"
+              height={-1}
               onChange={onResponseUpdate}
               onBlur={onResponseBlur}
               onEdit={onEdit}
@@ -116,7 +121,7 @@ export function ChatShapeView({
           </div>
         )}
 
-        {/* Divider - only show if response area is visible */}
+        {/* Divider */}
         {!hideResponse && (
           <div
             style={{
@@ -143,7 +148,7 @@ export function ChatShapeView({
           </div>
         )}
 
-        {/* Prompt region - if hideResponse, this should take all available space */}
+        {/* Prompt region */}
         <div style={{ 
           height: hideResponse ? "calc(100% - 32px)" : promptHeight, 
           overflow: "auto",

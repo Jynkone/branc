@@ -53,7 +53,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   });
 
-  // --- New Helper: Update generations and clean up old suggestions ---
+  // --- Helper: Update generations and clean up old suggestions ---
   function updateAndCleanupSuggestionBoxes(parentId: string) {
     const allShapes = editor.getCurrentPageShapes();
     // Shift generations for suggestions belonging to this parent:
@@ -105,7 +105,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // Update generations and clean up old suggestions for this parent
+      // Clean up old suggestions from the current chat shape
       updateAndCleanupSuggestionBoxes(shape.id);
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
