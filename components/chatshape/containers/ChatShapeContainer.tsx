@@ -271,7 +271,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
     setIsLoading(true);
     try {
-      // Unhide the AI response area and mark the suggestion as accepted.
+      // First, unhide the suggestion and mark it as accepted.
       editor.updateShape({
         id: shape.id,
         type: "chat",
@@ -281,10 +281,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           isSuggestion: false,
         },
       });
-      // Global cleanup.
-      updateAndCleanupSuggestionBoxes();
-      // Clear suggestion metadata on any connected arrows.
+      // First, update arrows connected to this suggestion to clear their suggestion metadata.
       updateArrowsForAcceptedSuggestion(shape.id);
+      // Then, run global cleanup (which will no longer process arrows with cleared metadata).
+      updateAndCleanupSuggestionBoxes();
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt);
       editor.updateShape({
@@ -298,7 +298,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       if (followUpQuestions && followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(shape.id as TLShapeId, followUpQuestions, 2), 1000);
+        setTimeout(() => createSuggestionBoxes(shape.id, followUpQuestions, 2), 1000);
       }
       refetchQuota();
     } catch (err) {

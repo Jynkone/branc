@@ -51,7 +51,7 @@ export function connectShapes(
   const parentShape = editor.getShape(parentBoxId)
   const childShape = editor.getShape(childBoxId)
 
-  // Check if either endpoint is a suggestion (casting props as any to bypass type restrictions).
+  // Check if either endpoint is a suggestion (cast props as any).
   const isSuggestion =
     (parentShape && ((parentShape.props as any)?.isSuggestion)) ||
     (childShape && ((childShape.props as any)?.isSuggestion))

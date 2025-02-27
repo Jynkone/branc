@@ -51,7 +51,7 @@ export function ChatShapeView({
   // Determine opacity.
   let opacity = 1;
   if (shape.type === "arrow") {
-    // For arrows, check meta.
+    // For arrows, use meta.
     const suggestionMeta = shape.meta as any;
     if (suggestionMeta?.isSuggestion) {
       if (suggestionMeta.suggestionGeneration === 2) {
@@ -68,7 +68,7 @@ export function ChatShapeView({
     }
   }
 
-  // If the shape is an arrow, we render a simpler view.
+  // Render arrow differently.
   if (shape.type === "arrow") {
     return (
       <HTMLContainer
@@ -77,7 +77,7 @@ export function ChatShapeView({
           pointerEvents: "auto",
           width: toDomPrecision(shape.props?.w || 0),
           height: toDomPrecision(shape.props?.h || 0),
-          position: "absolute", // arrows might be absolutely positioned.
+          position: "absolute", // arrows are absolutely positioned
           opacity: opacity,
         }}
       >
@@ -106,7 +106,7 @@ export function ChatShapeView({
     );
   }
 
-  // Otherwise, render the regular chat shape view.
+  // Render regular chat shape view.
   return (
     <div style={{ position: "relative" }}>
       {isLoading && (
