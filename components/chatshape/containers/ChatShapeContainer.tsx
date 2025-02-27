@@ -10,24 +10,19 @@ import { ChatShapeView } from "./ChatShapeView";
 import { useQuota } from "@/components/hooks/useQuota";
 import { TLShapeId } from "@tldraw/tlschema";
 
-// Map to track suggestion boxes by parent ID
+// Map to track suggestion boxes by parent ID (if needed for other logic)
 const suggestionRegistry = new Map<string, string[]>();
-// Map to track suggestion generations by parent ID
-const suggestionGenerations = new Map<string, number>();
 
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
   const { getChatResponse } = useChatAPI();
   const { refetch: refetchQuota } = useQuota();
 
-  // State for prompt, AI response, loading
+  // Local state for prompt, response and loading flag
   const [localPrompt, setLocalPrompt] = useState(shape.props.prompt);
   const [localResponse, setLocalResponse] = useState(shape.props.response);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Use the isEditing property from the shape instead of local state
   const [localIsEditing, setLocalIsEditing] = useState(shape.props.isEditing);
 
-  // Sync local state when shape props change from remote updates
   useEffect(() => {
     setLocalPrompt(shape.props.prompt);
   }, [shape.props.prompt]);
@@ -45,7 +40,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   const HEADER_HEIGHT = 32;
   const totalHeight = shape.props.h - HEADER_HEIGHT;
 
-  // Use the modular hook to manage prompt area resizing.
   const { promptHeight, handleDividerMouseDown } = usePromptResize({
     initialHeight: shape.props.promptHeight || 40,
     totalHeight,
@@ -59,11 +53,48 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   });
 
-  // -- Chat logic below
+  // --- New Helper: Update generations and clean up old suggestions ---
+  function updateAndCleanupSuggestionBoxes(parentId: string) {
+    const allShapes = editor.getCurrentPageShapes();
+    // Shift generations for suggestions belonging to this parent:
+    allShapes.forEach((s: any) => {
+      if (s.props.isSuggestion && s.props.parentId === parentId) {
+        if (s.props.suggestionGeneration === 2) {
+          // Active suggestions become "last"
+          editor.updateShape({
+            id: s.id,
+            type: "chat",
+            props: { ...s.props, suggestionGeneration: 1 }
+          });
+        } else if (s.props.suggestionGeneration === 1) {
+          // Last suggestions become "old" (0)
+          editor.updateShape({
+            id: s.id,
+            type: "chat",
+            props: { ...s.props, suggestionGeneration: 0 }
+          });
+        }
+      }
+    });
+
+    // Delete all suggestion boxes now marked as generation 0
+    const shapesToDelete = editor.getCurrentPageShapes().filter((s: any) =>
+      s.props.isSuggestion &&
+      s.props.parentId === parentId &&
+      s.props.suggestionGeneration === 0
+    );
+
+    if (shapesToDelete.length > 0) {
+      editor.deleteShapes(shapesToDelete.map((s: any) => s.id));
+    }
+  }
+  // --- End of helper ---
+
+  // --- Chat logic below ---
 
   async function sendPrompt() {
     setIsLoading(true);
-    let newShapeId: TLShapeId; // Declare newShapeId in outer scope
+    let newShapeId: TLShapeId;
     try {
       const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
       ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
@@ -74,13 +105,12 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // Clean up old suggestions when sending a new prompt
-      cleanupOldSuggestions(shape.id);
+      // Update generations and clean up old suggestions for this parent
+      updateAndCleanupSuggestionBoxes(shape.id);
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
 
-      // When creating a new "normal" chat shape, explicitly set parentId to "" (empty string)
       editor.createShape({
         id: newShapeId,
         type: "chat",
@@ -97,14 +127,14 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
           isEditing: false,
-          parentId: "", // <-- default for non-suggestions
+          parentId: "", // default for non-suggestions
         },
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
 
-      // After creating the response shape, create suggestion boxes if there are follow-up questions
+      // Create new suggestion boxes as generation 2 (active)
       if (followUpQuestions && followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 1), 1000);
+        setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
 
       refetchQuota();
@@ -115,12 +145,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   }
 
-  // Function to create suggestion boxes around a parent box
   function createSuggestionBoxes(parentId: TLShapeId, questions: string[], generation: number) {
     const parentShape = editor.getShape(parentId);
     if (!parentShape) return;
-
-    suggestionGenerations.set(parentId, generation);
 
     const suggestionIds: TLShapeId[] = [];
 
@@ -136,7 +163,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const suggestionId = makeShapeID();
       suggestionIds.push(suggestionId);
 
-      // For suggestion boxes, set parentId to the actual parent's ID
       editor.createShape({
         id: suggestionId,
         type: "chat",
@@ -153,7 +179,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dash: parentShape.props.dash,
           promptHeight: parentShape.props.promptHeight,
           isEditing: false,
-          parentId: parentId, // <-- parent's ID for suggestions
+          parentId: parentId, // parent's ID for suggestions
           isSuggestion: true,
           suggestionGeneration: generation,
           hideResponse: true,
@@ -166,29 +192,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
   }
 
-  // Function to clean up old suggestion boxes
-  function cleanupOldSuggestions(parentId: string) {
-    const allShapes = editor.getCurrentPageShapes();
-    const oldSuggestions = allShapes.filter((s: any) =>
-      s.props.isSuggestion &&
-      s.props.parentId &&
-      (s.props.parentId === shape.props.parentId ||
-        (s.props.parentId === parentId &&
-          s.props.suggestionGeneration &&
-          s.props.suggestionGeneration < 1))
-    );
-
-    if (oldSuggestions.length > 0) {
-      const shapesToDelete = oldSuggestions.map((s: any) => s.id as unknown as TLShapeId);
-      editor.deleteShapes(shapesToDelete);
-    }
-  }
-
   async function handleContextSend(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     setIsLoading(true);
-    let newShapeId: TLShapeId; // Declare in outer scope
+    let newShapeId: TLShapeId;
     const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
     ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
 
@@ -222,13 +230,13 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
           isEditing: false,
-          parentId: "", // <-- default for non-suggestions
+          parentId: "",
         },
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
 
       if (followUpQuestions && followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 1), 1000);
+        setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
 
       refetchQuota();
@@ -253,7 +261,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
 
   function handleResponseBlur() {
     setLocalIsEditing(false);
-
     editor.updateShape({
       id: shape.id,
       type: "chat",
@@ -268,7 +275,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   function handlePromptChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const newPrompt = e.target.value;
     setLocalPrompt(newPrompt);
-
     editor.batch(() => {
       editor.updateShape({
         id: shape.id,
@@ -280,7 +286,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
 
   function handleResponseUpdate(newText: string) {
     setLocalResponse(newText);
-
     editor.batch(() => {
       editor.updateShape({
         id: shape.id,
@@ -298,6 +303,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     setIsLoading(true);
 
     try {
+      // Unhide the AI response area for this suggestion box
       editor.updateShape({
         id: shape.id,
         type: "chat",
@@ -309,7 +315,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       });
 
       if (shape.props.parentId) {
-        cleanupOldSuggestions(shape.props.parentId);
+        updateAndCleanupSuggestionBoxes(shape.props.parentId);
       }
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt);
@@ -326,7 +332,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       });
 
       if (followUpQuestions && followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(shape.id as TLShapeId, followUpQuestions, 1), 1000);
+        setTimeout(() => createSuggestionBoxes(shape.id as TLShapeId, followUpQuestions, 2), 1000);
       }
 
       refetchQuota();
@@ -357,5 +363,5 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   );
 }
 
-// Add static property to the exported function
+// Static property for layout tree management
 ChatShapeContainer.layoutTree = new Map();
