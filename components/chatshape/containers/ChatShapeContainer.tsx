@@ -325,18 +325,25 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       
       // Delay cleanup until after the API call completes.
       let result = await getChatResponse(localPrompt);
-      let parsedResponse;
+      let parsedResponse: { response: string; followUpQuestions: string[] };
       if (typeof result === "string") {
         try {
-          parsedResponse = JSON.parse(result);
+          const temp = JSON.parse(result);
+          parsedResponse = {
+            response: temp.response,
+            followUpQuestions: temp.followUpQuestions || [] // default to empty array if undefined
+          };
         } catch (e) {
           console.error("Error parsing JSON response:", e);
           parsedResponse = { response: result, followUpQuestions: [] };
         }
       } else {
-        parsedResponse = result;
+        parsedResponse = {
+          response: result.response,
+          followUpQuestions: result.followUpQuestions || [] // default to empty array if undefined
+        };
       }
-      
+                  
       editor.updateShape({
         id: shape.id,
         type: "chat",
