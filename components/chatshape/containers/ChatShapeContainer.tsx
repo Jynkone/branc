@@ -79,7 +79,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     console.log("Updating suggestion transparency");
     const allShapes = editor.getCurrentPageShapes();
     
-    // First pass - reduce opacity of generation 2 suggestions to generation 1
+    // First, decrement all existing suggestions by one generation
     allShapes.forEach((s: any) => {
       // Skip anything that was accepted
       if (s.id && acceptedSuggestions.has(s.id)) {
@@ -89,12 +89,20 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       // Update suggestion boxes
       if (s.props?.isSuggestion) {
         if (s.props.suggestionGeneration === 2) {
-          // These become the previous generation (20-30% opacity)
+          // These become the previous generation (25% opacity)
           editor.updateShape({
             id: s.id,
             type: s.type,
             props: { ...s.props, suggestionGeneration: 1 },
             opacity: 0.25 // 25% opacity for generation 1
+          });
+        } else if (s.props.suggestionGeneration === 1) {
+          // These become generation 0 (will be deleted later)
+          editor.updateShape({
+            id: s.id,
+            type: s.type,
+            props: { ...s.props, suggestionGeneration: 0 },
+            opacity: 0.1 // 10% opacity for generation 0
           });
         }
       }
@@ -108,31 +116,39 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
             meta: { ...(s.meta as any), suggestionGeneration: 1 },
             opacity: 0.25, // 25% opacity for generation 1
           });
+        } else if ((s.meta as any).suggestionGeneration === 1) {
+          // These become generation 0 (will be deleted later)
+          editor.updateShape({
+            id: s.id, 
+            type: s.type,
+            meta: { ...(s.meta as any), suggestionGeneration: 0 },
+            opacity: 0.1, // 10% opacity for generation 0
+          });
         }
       }
     });
   }
   // --- End Helper ---
 
-  // --- Helper: Delete all non-accepted suggestions when a new selection is made ---
-  function deleteNonAcceptedSuggestions() {
-    console.log("Deleting non-accepted suggestions");
+  // --- Helper: Delete oldest generation of suggestions ---
+  function deleteOldestSuggestions() {
+    console.log("Deleting oldest generation of suggestions");
     const allShapes = editor.getCurrentPageShapes();
     
-    // Find all suggestions that haven't been accepted
+    // Find all suggestions that are generation 0 (oldest)
     const shapesToDelete = allShapes.filter((s: any) => {
       // Never delete accepted suggestions
       if (s.id && acceptedSuggestions.has(s.id)) {
         return false;
       }
       
-      // Delete non-accepted suggestion boxes
-      if (s.props?.isSuggestion) {
+      // Delete suggestion boxes at generation 0
+      if (s.props?.isSuggestion && s.props.suggestionGeneration === 0) {
         return true;
       }
       
-      // Delete arrows connected to suggestion boxes (unless they connect to an accepted one)
-      if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
+      // Delete arrows at generation 0, unless they connect to preserved shapes
+      if (s.type === "arrow" && (s.meta as any)?.isSuggestion && (s.meta as any).suggestionGeneration === 0) {
         const fromId = (s.meta as any).connectedFrom;
         const toId = (s.meta as any).connectedTo;
         
@@ -149,7 +165,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     });
   
     if (shapesToDelete.length > 0) {
-      console.log(`Deleting ${shapesToDelete.length} non-accepted suggestions`);
+      console.log(`Deleting ${shapesToDelete.length} oldest suggestions`);
       editor.deleteShapes(shapesToDelete.map((s: any) => s.id));
     }
   }
@@ -169,8 +185,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // First, delete any non-accepted suggestions
-      deleteNonAcceptedSuggestions();
+      // Update existing suggestions to the next lower generation
+      updateSuggestionTransparency();
+      
+      // Delete the oldest generation (generation 0)
+      deleteOldestSuggestions();
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
@@ -209,8 +228,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   }
 
   function createSuggestionBoxes(parentId: TLShapeId, questions: string[], generation: number) {
-    // First, update transparency of existing suggestions
+    // Update existing suggestions to the next lower generation
     updateSuggestionTransparency();
+    
+    // Delete the oldest generation (generation 0)
+    deleteOldestSuggestions();
     
     const parentShape = editor.getShape(parentId);
     if (!parentShape) return;
@@ -281,8 +303,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const context = localResponse;
 
     try {
-      // Delete any non-accepted suggestions first
-      deleteNonAcceptedSuggestions();
+      // Update existing suggestions to the next lower generation
+      updateSuggestionTransparency();
+      
+      // Delete the oldest generation (generation 0)
+      deleteOldestSuggestions();
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
@@ -344,8 +369,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       // Update arrows connected to this suggestion
       updateArrowsForAcceptedSuggestion(shape.id);
       
-      // Delete all other non-accepted suggestions
-      deleteNonAcceptedSuggestions();
+      // Update existing suggestions to the next lower generation
+      updateSuggestionTransparency();
+      
+      // Delete the oldest generation (generation 0)
+      deleteOldestSuggestions();
 
       // Generate response for this accepted suggestion
       const { response, followUpQuestions } = await getChatResponse(localPrompt);
