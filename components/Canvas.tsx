@@ -16,7 +16,7 @@ import {
   defaultShapeUtils,
 } from "tldraw";
 import { useSync } from '@tldraw/sync';
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import "tldraw/tldraw.css";
 import { chatTool } from "@/tools/ChatTool";
 import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
@@ -27,9 +27,8 @@ import { multiplayerAssetStore } from "@/lib/multiplayerAssetStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Label } from "./ui/label";
 import { Input } from "./ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Pencil } from "lucide-react";
+import { Pencil, Check, Plus, GripVertical } from "lucide-react";
 
 // Import the unified QuotaCard component
 import { QuotaCard } from "@/components/QuotaCard";
@@ -127,16 +126,74 @@ export function Canvas({ userId }: { userId: string }) {
   const [currentRoom, setCurrentRoom] = useState<RoomData | null>(null);
   const [availableRooms, setAvailableRooms] = useState<RoomData[]>([]);
   
-  // State for dialogs
+  // State for UI elements
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-  const [isNewBoardDialogOpen, setIsNewBoardDialogOpen] = useState(false);
-  const [isRenamingBoard, setIsRenamingBoard] = useState(false);
-  const [newBoardName, setNewBoardName] = useState('New Board');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isEditingBoardName, setIsEditingBoardName] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
   const [shareLink, setShareLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   
-  // Ref for the rename input
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  // State for dynamic positioning
+  const [selectorPosition, setSelectorPosition] = useState(230); // Default fallback position
+  
+  // Refs for DOM elements
+  const menuRef = useRef<HTMLDivElement>(null);
+  const boardNameInputRef = useRef<HTMLInputElement>(null);
+  const boardButtonRef = useRef<HTMLButtonElement>(null);
+  const tldrawContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Function to calculate and update the selector position
+  const updateSelectorPosition = useCallback(() => {
+    if (!tldrawContainerRef.current) return;
+    
+    // Look for the action menu (the top menu with undo/redo/etc)
+    // This could be one of several selectors depending on tldraw's implementation
+    const actionMenu = tldrawContainerRef.current.querySelector('.tlui-menu-zone, .tlui-action-panel, .tlui-actions, .tlui-actions-menu');
+    
+    if (actionMenu) {
+      const menuRect = actionMenu.getBoundingClientRect();
+      // Position is the right edge of the menu + 20px
+      setSelectorPosition(menuRect.right + 5);
+    }
+  }, []);
+  
+  // Set up a resize observer to recalculate position when layout changes
+  useEffect(() => {
+    updateSelectorPosition();
+    
+    const resizeObserver = new ResizeObserver(() => {
+      updateSelectorPosition();
+    });
+    
+    // We need to check for changes to the DOM as well as window resizing
+    const mutationObserver = new MutationObserver(() => {
+      updateSelectorPosition();
+    });
+    
+    // Add a slight delay to ensure tldraw is fully rendered
+    const timeoutId = setTimeout(() => {
+      updateSelectorPosition();
+      if (tldrawContainerRef.current) {
+        resizeObserver.observe(document.body);
+        mutationObserver.observe(document.body, { 
+          childList: true, 
+          subtree: true 
+        });
+      }
+    }, 500);
+    
+    // Listen for window resizing
+    window.addEventListener('resize', updateSelectorPosition);
+    
+    // Clean up
+    return () => {
+      clearTimeout(timeoutId);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener('resize', updateSelectorPosition);
+    };
+  }, [updateSelectorPosition]);
   
   // Effect to initialize rooms
   useEffect(() => {
@@ -163,7 +220,7 @@ export function Canvas({ userId }: { userId: string }) {
         // Create the default board if it doesn't exist
         defaultBoard = {
           id: defaultBoardId,
-          name: "My First Board",
+          name: "Page 1",
           isShared: false,
           owner: userId,
           createdAt: Date.now(),
@@ -182,7 +239,7 @@ export function Canvas({ userId }: { userId: string }) {
           // This is a new shared board to us
           sharedBoard = {
             id: sharedBoardId,
-            name: `Shared Board`,
+            name: `Page 1`,
             isShared: true,
             owner: 'unknown', // We don't know who the owner is
             createdAt: Date.now(),
@@ -206,9 +263,36 @@ export function Canvas({ userId }: { userId: string }) {
     initializeRooms();
   }, [userId, sharedBoardId]);
   
-  // Function to handle room change
-  const handleRoomChange = (roomId: string) => {
-    const selectedRoom = availableRooms.find(room => room.id === roomId);
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        menuRef.current && 
+        !menuRef.current.contains(event.target as Node) &&
+        boardButtonRef.current && 
+        !boardButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsMenuOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+  
+  // Focus input when editing
+  useEffect(() => {
+    if (isEditingBoardName && boardNameInputRef.current) {
+      boardNameInputRef.current.focus();
+      boardNameInputRef.current.select();
+    }
+  }, [isEditingBoardName]);
+  
+  // Handle board selection
+  const selectBoard = (boardId: string) => {
+    const selectedRoom = availableRooms.find(room => room.id === boardId);
     if (selectedRoom) {
       setCurrentRoom(selectedRoom);
       // Update the URL to reflect the current board
@@ -217,38 +301,43 @@ export function Canvas({ userId }: { userId: string }) {
       } else {
         router.push('/');
       }
+      setIsMenuOpen(false);
     }
   };
   
-  // Function to create a new board
-  const handleCreateNewBoard = () => {
-    if (!userId || !newBoardName.trim()) {
-      setIsNewBoardDialogOpen(false);
-      return;
-    }
+  // Handle creating a new board
+  const createNewBoardHandler = () => {
+    if (!userId) return;
     
-    const newBoard = createNewBoard(userId, newBoardName);
+    const boardNumber = availableRooms.length + 1;
+    const newBoard = createNewBoard(userId, `Page ${boardNumber}`);
     
     const updatedRooms = [...availableRooms, newBoard];
     localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
     
     setAvailableRooms(updatedRooms);
     setCurrentRoom(newBoard);
-    setIsNewBoardDialogOpen(false);
-    setNewBoardName('New Board');
     
     // Update URL for the new shared board
     router.push(`/?board=${newBoard.id}`);
   };
   
-  // Function to handle renaming a board
-  const handleRenameBoard = () => {
+  // Start editing board name
+  const startEditingBoardName = () => {
+    if (!currentRoom) return;
+    setNewBoardName(currentRoom.name);
+    setIsEditingBoardName(true);
+    setIsMenuOpen(false);
+  };
+  
+  // Save board name
+  const saveBoardName = () => {
     if (!currentRoom || !newBoardName.trim()) {
-      setIsRenamingBoard(false);
+      setIsEditingBoardName(false);
       return;
     }
     
-    const updatedRoom = { ...currentRoom, name: newBoardName };
+    const updatedRoom = { ...currentRoom, name: newBoardName.trim() };
     const updatedRooms = availableRooms.map(room => 
       room.id === currentRoom.id ? updatedRoom : room
     );
@@ -256,23 +345,7 @@ export function Canvas({ userId }: { userId: string }) {
     localStorage.setItem(`branc-known-boards-${userId}`, JSON.stringify(updatedRooms));
     setAvailableRooms(updatedRooms);
     setCurrentRoom(updatedRoom);
-    setIsRenamingBoard(false);
-  };
-  
-  // Focus the rename input when it becomes visible
-  useEffect(() => {
-    if (isRenamingBoard && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
-    }
-  }, [isRenamingBoard]);
-  
-  // Start renaming with current board name
-  const startRenaming = () => {
-    if (currentRoom) {
-      setNewBoardName(currentRoom.name);
-      setIsRenamingBoard(true);
-    }
+    setIsEditingBoardName(false);
   };
   
   // Function to generate and show share link
@@ -330,8 +403,74 @@ export function Canvas({ userId }: { userId: string }) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
+  // Render the "tldraw-style" page selector
+  const renderPageSelector = () => {
+    if (isEditingBoardName) {
+      return (
+        <div className="tldraw-page-selector">
+          <input
+            ref={boardNameInputRef}
+            value={newBoardName}
+            onChange={(e) => setNewBoardName(e.target.value)}
+            onBlur={saveBoardName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveBoardName();
+              if (e.key === 'Escape') setIsEditingBoardName(false);
+            }}
+            className="tldraw-page-name-input"
+          />
+        </div>
+      );
+    }
+    
+    return (
+      <div className="tldraw-page-selector">
+        <button
+          ref={boardButtonRef}
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          className="tldraw-page-button"
+        >
+          {currentRoom.name}
+        </button>
+        
+        {isMenuOpen && (
+          <div ref={menuRef} className="tldraw-pages-menu">
+            <div className="tldraw-pages-menu-header">
+              <span>Pages</span>
+              <div className="tldraw-pages-menu-actions">
+                <button onClick={startEditingBoardName} className="tldraw-icon-button">
+                  <Pencil size={14} />
+                </button>
+                <button onClick={createNewBoardHandler} className="tldraw-icon-button">
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="tldraw-pages-menu-list">
+              {availableRooms.map((room) => (
+                <button
+                  key={room.id}
+                  onClick={() => selectBoard(room.id)}
+                  className={`tldraw-page-list-item ${currentRoom.id === room.id ? 'selected' : ''}`}
+                >
+                  {currentRoom.id === room.id && (
+                    <span className="tldraw-check-icon"><Check size={14} /></span>
+                  )}
+                  <span className="tldraw-page-list-item-handle">
+
+                  </span>
+                  {room.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div style={{ position: "fixed", inset: 0 }}>
+    <div ref={tldrawContainerRef} style={{ position: "fixed", inset: 0 }}>
       {/* QuotaCard at the Top Center */}
       <div
         style={{
@@ -343,59 +482,6 @@ export function Canvas({ userId }: { userId: string }) {
         }}
       >
         <QuotaCard />
-      </div>
-
-      {/* Board selector and controls - Moved higher up */}
-      <div
-        style={{
-          position: "absolute",
-          left: 230,
-          zIndex: 3000,
-          display: "flex",
-          gap: "8px",
-          alignItems: "center",
-        }}
-      >
-        {isRenamingBoard ? (
-          <div className="flex items-center gap-2">
-            <Input
-              ref={renameInputRef}
-              value={newBoardName}
-              onChange={(e) => setNewBoardName(e.target.value)}
-              onBlur={handleRenameBoard}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRenameBoard();
-                if (e.key === 'Escape') setIsRenamingBoard(false);
-              }}
-              className="w-[180px]"
-            />
-            <Button size="sm" variant="outline" onClick={handleRenameBoard}>
-              Save
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Select value={currentRoom.id} onValueChange={handleRoomChange}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select a board" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableRooms.map(room => (
-                  <SelectItem key={room.id} value={room.id}>
-                    {room.name} {room.isShared && "👥"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" variant="ghost" onClick={startRenaming}>
-              <Pencil className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-        
-        <Button size="sm" variant="outline" onClick={() => setIsNewBoardDialogOpen(true)}>
-          New Board
-        </Button>
       </div>
 
       <Tldraw
@@ -411,10 +497,29 @@ export function Canvas({ userId }: { userId: string }) {
           // Register bookmark handler
           editor.registerExternalAssetHandler('url', getBookmarkPreview);
           
+          // Additional event for when tldraw finishes mounting UI elements
+          editor.addListener('mount', () => {
+            // Delayed update to ensure UI is fully rendered
+            setTimeout(updateSelectorPosition, 100);
+          });
+          
           // Log store information for debugging
           console.log("TLDraw store initialized with room:", currentRoom);
         }}
       />
+
+      {/* Page Selector with dynamic positioning */}
+      <div 
+        className="tldraw-page-selector-container"
+        style={{ 
+          position: "absolute", 
+          left: `${selectorPosition}px`, 
+          top: "5px", 
+          zIndex: 3000 
+        }}
+      >
+        {renderPageSelector()}
+      </div>
 
       <div className="absolute top-1 right-1 flex gap-1" style={{ zIndex: 2000 }}>
         <Button 
@@ -430,36 +535,6 @@ export function Canvas({ userId }: { userId: string }) {
           </Button>
         </SignOutButton>
       </div>
-
-      {/* New Board Dialog */}
-      <Dialog open={isNewBoardDialogOpen} onOpenChange={setIsNewBoardDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Board</DialogTitle>
-          </DialogHeader>
-          
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="boardName" className="text-right">
-                Board Name
-              </Label>
-              <Input
-                id="boardName"
-                value={newBoardName}
-                onChange={(e) => setNewBoardName(e.target.value)}
-                className="col-span-3"
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNewBoardDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreateNewBoard}>Create</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Share Dialog */}
       <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
@@ -498,6 +573,122 @@ export function Canvas({ userId }: { userId: string }) {
       </Dialog>
 
       <style jsx global>{`
+        /* TLDraw Style Page Selector */
+        .tldraw-page-selector-container {
+          font-size: 14px;
+        }
+        
+        .tldraw-page-selector {
+          position: relative;
+          display: inline-block;
+        }
+        
+        .tldraw-page-button {
+          display: inline-block;
+          background: transparent;
+          border: none;
+          padding: 5px 8px;
+          font-size: 14px;
+          cursor: pointer;
+          color: #333;
+          font-weight: 500;
+        }
+        
+        .tldraw-page-button:hover {
+          background: rgba(144, 144, 144, 0.1);
+          border-radius: 4px;
+        }
+        
+        .tldraw-pages-menu {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          margin-top: 4px;
+          background: white;
+          border-radius: 10px;
+          box-shadow: 15 16px 12px EDF0F2;
+          width: 230px;
+          z-index: 1000;
+          overflow: hidden;
+        }
+        
+        .tldraw-pages-menu-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          border-bottom: 1px solidrgb(220, 220, 220);
+        }
+        
+        .tldraw-pages-menu-actions {
+          display: flex;
+          gap: 10px;
+        }
+        
+        .tldraw-icon-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: none;
+          border: none;
+          border-radius: 4px;
+          width: 24px;
+          height: 24px;
+          cursor: pointer;
+        }
+        
+        .tldraw-icon-button:hover {
+          background:rgb(234, 234, 234);
+        }
+        
+        .tldraw-pages-menu-list {
+          max-height: 350px;
+          overflow-y: auto;
+        }
+        
+        .tldraw-page-list-item {
+          display: flex;
+          align-items: center;
+          width: 100%;
+          padding: 8px 12px;
+          text-align: left;
+          background: none;
+          border: none;
+          cursor: pointer;
+          position: relative;
+        }
+        
+        .tldraw-page-list-item:hover {
+          background:rgb(234, 234, 234);
+        }
+        
+        
+        .tldraw-check-icon {
+          margin-right: 4px;
+          display: flex;
+          align-items: center;
+        }
+        
+        .tldraw-page-list-item-handle {
+          margin-right: 8px;
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: grab;
+          opacity: 0.6;
+        }
+        
+        .tldraw-page-name-input {
+          background: white;
+          border: 2px solid #3b82f6;
+          border-radius: 4px;
+          padding: 5px 10px;
+          font-size: 14px;
+          outline: none;
+          width: 180px;
+        }
+        
         .tldraw-style-panel,
         .tlui-style-panel {
           top: 45px !important;
