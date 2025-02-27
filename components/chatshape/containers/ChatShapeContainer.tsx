@@ -13,6 +13,9 @@ import { TLShapeId } from "@tldraw/tlschema";
 // Optional registry for suggestions.
 const suggestionRegistry = new Map<string, string[]>();
 
+// Track accepted suggestions separately since we can't add new props
+const acceptedSuggestions = new Set<string>();
+
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
   const { getChatResponse } = useChatAPI();
   const { refetch: refetchQuota } = useQuota();
@@ -49,11 +52,13 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         const meta = s.meta as any;
         if (meta.connectedFrom === acceptedId || meta.connectedTo === acceptedId) {
-          // Preserve connection info but mark as no longer a suggestion
+          // Mark in meta that this arrow is connected to an accepted suggestion
+          // Use existing props, don't add new ones
           const newMeta = {
             connectedFrom: meta.connectedFrom,
             connectedTo: meta.connectedTo,
-            wasAcceptedSuggestion: true  // Add this flag to preserve this arrow
+            // Special marker in isSuggestion - false means it's no longer a suggestion
+            isSuggestion: false
           };
           
           editor.updateShape({
@@ -79,8 +84,13 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   
     // FIRST PASS: Update generation counters for ALL suggestion objects
     allShapes.forEach((s: any) => {
-      // Skip anything marked as an accepted suggestion
-      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) {
+      // Skip anything that was an accepted suggestion (tracked in our Set)
+      if (s.id && acceptedSuggestions.has(s.id)) {
+        return;
+      }
+      
+      // For arrows, also check the meta field isSuggestion=false which we use to mark accepted
+      if (s.type === "arrow" && (s.meta as any)?.isSuggestion === false) {
         return;
       }
       
@@ -123,7 +133,12 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     // SECOND PASS: Collect all objects at generation 0 for deletion
     const shapesToDelete = editor.getCurrentPageShapes().filter((s: any) => {
       // Never delete accepted suggestions or their arrows
-      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) {
+      if (s.id && acceptedSuggestions.has(s.id)) {
+        return false;
+      }
+      
+      // For arrows, also skip those marked with isSuggestion=false
+      if (s.type === "arrow" && (s.meta as any)?.isSuggestion === false) {
         return false;
       }
       
@@ -138,16 +153,16 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         const toId = (s.meta as any).connectedTo;
         
         if (fromId || toId) {
+          // Check if connected to an accepted suggestion
+          if (fromId && acceptedSuggestions.has(fromId)) return false;
+          if (toId && acceptedSuggestions.has(toId)) return false;
+          
+          // Also check if connected to a normal box
           const fromShape = fromId ? editor.getShape(fromId) : null;
           const toShape = toId ? editor.getShape(toId) : null;
           
-          // Don't delete if connected to a non-suggestion or an accepted suggestion
-          if (fromShape && (!fromShape.props?.isSuggestion || fromShape.props?.wasAcceptedSuggestion)) {
-            return false;
-          }
-          if (toShape && (!toShape.props?.isSuggestion || toShape.props?.wasAcceptedSuggestion)) {
-            return false;
-          }
+          if (fromShape && !fromShape.props?.isSuggestion) return false;
+          if (toShape && !toShape.props?.isSuggestion) return false;
         }
         return true;
       }
@@ -156,7 +171,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     });
   
     // Log deletion info
-    /*console.log("Shapes to delete:", shapesToDelete.map(s => ({
+   /* console.log("Shapes to delete:", shapesToDelete.map(s => ({
       id: s.id,
       type: s.type,
       generation: s.props?.suggestionGeneration || (s.meta as any)?.suggestionGeneration
@@ -341,15 +356,18 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
     setIsLoading(true);
     try {
-      // First, mark this suggestion as accepted with a special flag
+      // Record this id in our acceptedSuggestions set
+      acceptedSuggestions.add(shape.id);
+      
+      // Update shape properties within schema constraints
       editor.updateShape({
         id: shape.id,
         type: "chat",
         props: {
           ...shape.props,
           hideResponse: false,
-          isSuggestion: false,
-          wasAcceptedSuggestion: true  // Add this flag to track accepted suggestions
+          isSuggestion: false,  // No longer a suggestion
+          branchType: "accepted", // Use existing field to mark as accepted
         },
       });
       
@@ -368,7 +386,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           response: response,
           hideResponse: false,
           isSuggestion: false,
-          wasAcceptedSuggestion: true
+          branchType: "accepted", // Keep marking as accepted
         },
       });
       
