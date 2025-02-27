@@ -11,8 +11,6 @@ import { TLShapeId } from "@tldraw/tlschema";
 
 // Optional registry for suggestions.
 const suggestionRegistry = new Map<string, string[]>();
-// Track accepted suggestions so we never delete them.
-const acceptedSuggestions = new Set<string>();
 
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
   const { getChatResponse } = useChatAPI();
@@ -56,7 +54,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         const meta = s.meta as any;
         if (meta.connectedFrom === acceptedId || meta.connectedTo === acceptedId) {
-          // Preserve connection info but mark as no longer a suggestion.
+          // Preserve connection info but mark as accepted.
           editor.updateShape({
             id: s.id,
             type: s.type,
@@ -69,15 +67,15 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   }
   // --- End Helper ---
 
-  // --- Global Cleanup Helper ---
-  function updateAndCleanupSuggestionBoxes() {
-    // This function is now decoupled from prompt submission.
+  // --- Cleanup Cycle: Downgrade and Delete Old Suggestions ---
+  function cycleSuggestionCleanup() {
     const allShapes = editor.getCurrentPageShapes();
-    // First pass: downgrade suggestion generations (only for non-accepted suggestions)
+    // First pass: Downgrade suggestion boxes and arrows if not accepted.
     allShapes.forEach((s: any) => {
-      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) {
-        return;
-      }
+      // Skip accepted suggestions.
+      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) return;
+      
+      // For suggestion chatboxes:
       if (s.props?.isSuggestion) {
         if (s.props.suggestionGeneration === 2) {
           editor.updateShape({
@@ -94,7 +92,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
             opacity: 0.1,
           });
         }
-      } else if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
+      }
+      // For suggestion arrows:
+      else if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         if ((s.meta as any).suggestionGeneration === 2) {
           editor.updateShape({
             id: s.id,
@@ -112,33 +112,19 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         }
       }
     });
-  
-    // Second pass: delete objects at generation 0 that are not accepted
+
+    // Second pass: Delete any suggestion boxes or arrows at generation 0.
     const shapesToDelete = editor.getCurrentPageShapes().filter((s: any) => {
-      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) {
-        return false;
-      }
-      if (s.props?.isSuggestion && s.props.suggestionGeneration === 0) {
-        return true;
-      }
-      if (s.type === "arrow" && (s.meta as any)?.isSuggestion && (s.meta as any).suggestionGeneration === 0) {
-        return true;
-      }
+      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) return false;
+      if (s.props?.isSuggestion && s.props.suggestionGeneration === 0) return true;
+      if (s.type === "arrow" && (s.meta as any)?.isSuggestion && (s.meta as any).suggestionGeneration === 0) return true;
       return false;
     });
     if (shapesToDelete.length > 0) {
       editor.deleteShapes(shapesToDelete.map((s: any) => s.id));
     }
   }
-  // --- End Global Cleanup Helper ---
-
-  // Schedule global cleanup every 5 seconds independently
-  useEffect(() => {
-    const interval = setInterval(() => {
-      updateAndCleanupSuggestionBoxes();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [editor]);
+  // --- End Cleanup Cycle ---
 
   // --- Chat Logic ---
   async function sendPrompt() {
@@ -154,7 +140,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // Do not run cleanup inline; cleanup now runs periodically.
+      // Send the prompt without interfering cleanup.
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
 
@@ -179,9 +165,13 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
 
+      // If there are follow-up questions, create new suggestions as generation 2.
       if (followUpQuestions && followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
+      // Then cycle previous suggestions.
+      cycleSuggestionCleanup();
+
       refetchQuota();
     } catch (err) {
       console.error("Error generating chat response:", err);
@@ -191,7 +181,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   }
 
   function createSuggestionBoxes(parentId: TLShapeId, questions: string[], generation: number) {
-    // Do not run inline cleanup; rely on periodic cleanup.
     const parentShape = editor.getShape(parentId);
     if (!parentShape) return;
 
@@ -230,7 +219,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
         opacity: generation === 2 ? 0.55 : generation === 1 ? 0.25 : 0.1,
       });
-      // Create a connecting arrow
+      // Create a connecting arrow.
       connectShapes(editor, parentId, suggestionId);
     });
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
@@ -282,6 +271,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       if (followUpQuestions && followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
+      // Cycle suggestions after context send.
+      cycleSuggestionCleanup();
+
       refetchQuota();
     } catch (err) {
       console.error("Error re-sending context:", err);
@@ -296,7 +288,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
     setIsLoading(true);
     try {
-      // Mark suggestion as accepted without running cleanup inline.
+      // Mark the suggestion as accepted without running cleanup inline.
       editor.updateShape({
         id: shape.id,
         type: "chat",
@@ -312,7 +304,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       
       updateArrowsForAcceptedSuggestion(shape.id);
       
-      // Now simply send the prompt without interfering cleanup.
+      // Send the prompt as-is.
       let result = await getChatResponse(localPrompt);
       let parsedResponse: { response: string; followUpQuestions: string[] };
       if (typeof result === "string") {
@@ -346,9 +338,14 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       
+      // If there are follow-up questions, create new suggestions with generation 2.
       if (parsedResponse.followUpQuestions && parsedResponse.followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(shape.id, parsedResponse.followUpQuestions, 2), 1000);
       }
+      
+      // Then cycle previous suggestions.
+      cycleSuggestionCleanup();
+      
       refetchQuota();
     } catch (err) {
       console.error("Error generating response from suggestion:", err);
