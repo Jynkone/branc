@@ -1,4 +1,3 @@
-// lib/ChatShapeContainer.tsx
 import React, { useState, useEffect } from "react";
 import { ChatShape } from "../ChatShapeTypes";
 import { useChatAPI } from "../hooks/useChatAPI";
@@ -24,9 +23,15 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   const [isLoading, setIsLoading] = useState(false);
   const [localIsEditing, setLocalIsEditing] = useState(shape.props.isEditing);
 
-  useEffect(() => { setLocalPrompt(shape.props.prompt); }, [shape.props.prompt]);
-  useEffect(() => { if (!localIsEditing) setLocalResponse(shape.props.response); }, [shape.props.response, localIsEditing]);
-  useEffect(() => { setLocalIsEditing(shape.props.isEditing); }, [shape.props.isEditing]);
+  useEffect(() => { 
+    setLocalPrompt(shape.props.prompt); 
+  }, [shape.props.prompt]);
+  useEffect(() => { 
+    if (!localIsEditing) setLocalResponse(shape.props.response); 
+  }, [shape.props.response, localIsEditing]);
+  useEffect(() => { 
+    setLocalIsEditing(shape.props.isEditing); 
+  }, [shape.props.isEditing]);
 
   const HEADER_HEIGHT = 32;
   const totalHeight = shape.props.h - HEADER_HEIGHT;
@@ -68,29 +73,38 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   // --- Helper: Update transparency of existing suggestions ---
   function updateSuggestionTransparency() {
     const allShapes = editor.getCurrentPageShapes();
+    // Check if there is any suggestion already at generation 0.
+    const hasGen0 = allShapes.some((s: any) => {
+      if (s.props?.isSuggestion && s.props.suggestionGeneration === 0) return true;
+      if (s.type === "arrow" && (s.meta as any)?.isSuggestion && (s.meta as any).suggestionGeneration === 0) return true;
+      return false;
+    });
+
     allShapes.forEach((s: any) => {
-      // Skip accepted suggestions
+      // Skip accepted suggestions.
       if (s.id && acceptedSuggestions.has(s.id)) return;
 
-      // For chatboxes.
+      // For chatbox suggestions.
       if (s.props?.isSuggestion) {
         if (s.props.suggestionGeneration === 2) {
+          // Downgrade from generation 2 to generation 1 with 25% opacity.
           editor.updateShape({
             id: s.id,
             type: s.type,
             props: { ...s.props, suggestionGeneration: 1 },
-            opacity: 0.25, // Generation 1: 25% opacity
+            opacity: 0.25,
           });
-        } else if (s.props.suggestionGeneration === 1) {
+        } else if (s.props.suggestionGeneration === 1 && hasGen0) {
+          // Only downgrade generation 1 to generation 0 if there's already a generation 0 suggestion.
           editor.updateShape({
             id: s.id,
             type: s.type,
             props: { ...s.props, suggestionGeneration: 0 },
-            opacity: 0.1, // Generation 0: 10% opacity
+            opacity: 0.1,
           });
         }
       }
-      // For arrows.
+      // For arrow suggestions.
       else if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         if ((s.meta as any).suggestionGeneration === 2) {
           editor.updateShape({
@@ -99,7 +113,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
             meta: { ...(s.meta as any), suggestionGeneration: 1 } as any,
             opacity: 0.25,
           });
-        } else if ((s.meta as any).suggestionGeneration === 1) {
+        } else if ((s.meta as any).suggestionGeneration === 1 && hasGen0) {
           editor.updateShape({
             id: s.id,
             type: s.type,
@@ -117,7 +131,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const allShapes = editor.getCurrentPageShapes();
     const shapesToDelete = allShapes.filter((s: any) => {
       if (s.id && acceptedSuggestions.has(s.id)) return false;
+      // For chatboxes.
       if (s.props?.isSuggestion && s.props.suggestionGeneration === 0) return true;
+      // For arrows.
       if (s.type === "arrow" && (s.meta as any)?.isSuggestion && (s.meta as any).suggestionGeneration === 0) return true;
       return false;
     });
@@ -224,15 +240,14 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           suggestionGeneration: generation,
           hideResponse: true,
         },
-        opacity: 0.55, // New suggestions start at 55% opacity.
+        opacity: generation === 2 ? 0.55 : generation === 1 ? 0.25 : 0.1,
       });
 
       // Also create a connecting arrow.
       const arrowId = connectShapes(editor, parentId, suggestionId);
-      // Set arrow's initial opacity.
       editor.updateShape({
         id: arrowId,
-        opacity: 0.55,
+        opacity: generation === 2 ? 0.55 : generation === 1 ? 0.25 : 0.1,
       });
     });
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
@@ -331,7 +346,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           const temp = JSON.parse(result);
           parsedResponse = {
             response: temp.response,
-            followUpQuestions: temp.followUpQuestions || [] // default to empty array if undefined
+            followUpQuestions: temp.followUpQuestions || [],
           };
         } catch (e) {
           console.error("Error parsing JSON response:", e);
@@ -340,10 +355,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       } else {
         parsedResponse = {
           response: result.response,
-          followUpQuestions: result.followUpQuestions || [] // default to empty array if undefined
+          followUpQuestions: result.followUpQuestions || [],
         };
       }
-                  
+      
       editor.updateShape({
         id: shape.id,
         type: "chat",
