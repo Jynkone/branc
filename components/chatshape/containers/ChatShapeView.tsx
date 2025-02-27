@@ -1,27 +1,27 @@
-// components/chatshape/containers/ChatShapeView.tsx
-import React from "react"
-import { HTMLContainer, toDomPrecision, useDefaultColorTheme } from "tldraw"
-import { ChatShapeHeader } from "../components/ChatShapeHeader"
-import { ChatShapeContent } from "../components/ChatShapeContent"
-import { ChatShapeFooter } from "../components/ChatShapeFooter"
-import { Loader } from "lucide-react"
+// lib/ChatShapeView.tsx
+import React from "react";
+import { HTMLContainer, toDomPrecision, useDefaultColorTheme } from "tldraw";
+import { ChatShapeHeader } from "../components/ChatShapeHeader";
+import { ChatShapeContent } from "../components/ChatShapeContent";
+import { ChatShapeFooter } from "../components/ChatShapeFooter";
+import { Loader } from "lucide-react";
 
 type Props = {
-  shape: any
-  isLoading: boolean
-  isEditingResponse: boolean
-  localPrompt: string
-  localResponse: string
-  promptHeight: number
-  hideResponse?: boolean
-  onDividerMouseDown: (e: React.MouseEvent) => void
-  onEdit: (e: React.MouseEvent<HTMLButtonElement>) => void
-  onResponseBlur: () => void
-  onPromptChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
-  onResponseUpdate: (value: string) => void
-  onSendPrompt: () => void
-  onContextSend: (e: React.MouseEvent<HTMLButtonElement>) => void
-}
+  shape: any;
+  isLoading: boolean;
+  isEditingResponse: boolean;
+  localPrompt: string;
+  localResponse: string;
+  promptHeight: number;
+  hideResponse?: boolean;
+  onDividerMouseDown: (e: React.MouseEvent) => void;
+  onEdit: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onResponseBlur: () => void;
+  onPromptChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onResponseUpdate: (value: string) => void;
+  onSendPrompt: () => void;
+  onContextSend: (e: React.MouseEvent<HTMLButtonElement>) => void;
+};
 
 export function ChatShapeView({
   shape,
@@ -39,28 +39,74 @@ export function ChatShapeView({
   onSendPrompt,
   onContextSend,
 }: Props) {
-  // Use Tldraw's theme so that style changes update automatically
-  const theme = useDefaultColorTheme()
-  const colorKey = shape.props.color as keyof typeof theme
-  const themeColor = theme[colorKey] as Exclude<typeof theme[typeof colorKey], string>
-  const strokeColor = themeColor.solid
-  let borderStyle: "solid" | "dashed" | "dotted" = "solid"
-  if (shape.props.dash === "dashed") borderStyle = "dashed"
-  if (shape.props.dash === "dotted") borderStyle = "dotted"
-  const backgroundColor = "#F9FAFB"
-  
-  // Set opacity based on suggestion generation
+  const theme = useDefaultColorTheme();
+  const colorKey = shape.props?.color as keyof typeof theme;
+  const themeColor = theme[colorKey] as Exclude<typeof theme[typeof colorKey], string>;
+  const strokeColor = themeColor.solid;
+  let borderStyle: "solid" | "dashed" | "dotted" = "solid";
+  if (shape.props?.dash === "dashed") borderStyle = "dashed";
+  if (shape.props?.dash === "dotted") borderStyle = "dotted";
+  const backgroundColor = "#F9FAFB";
+
+  // Determine opacity.
   let opacity = 1;
-  if (shape.props.isSuggestion) {
+  if (shape.type === "arrow") {
+    // For arrows, check meta.
+    const suggestionMeta = shape.meta as any;
+    if (suggestionMeta?.isSuggestion) {
+      if (suggestionMeta.suggestionGeneration === 2) {
+        opacity = 0.55;
+      } else if (suggestionMeta.suggestionGeneration === 1) {
+        opacity = 0.25;
+      }
+    }
+  } else if (shape.props?.isSuggestion) {
     if (shape.props.suggestionGeneration === 2) {
-      // Active suggestions: 50-60% opaque
       opacity = 0.55;
     } else if (shape.props.suggestionGeneration === 1) {
-      // Last suggestions: 20-30% opaque
       opacity = 0.25;
     }
   }
 
+  // If the shape is an arrow, we render a simpler view.
+  if (shape.type === "arrow") {
+    return (
+      <HTMLContainer
+        id={shape.id}
+        style={{
+          pointerEvents: "auto",
+          width: toDomPrecision(shape.props?.w || 0),
+          height: toDomPrecision(shape.props?.h || 0),
+          position: "absolute", // arrows might be absolutely positioned.
+          opacity: opacity,
+        }}
+      >
+        {isLoading && (
+          <div
+            style={{
+              position: "absolute",
+              top: "-50px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: "40px",
+              height: "40px",
+              borderRadius: "50%",
+              backgroundColor: "rgba(255, 255, 255, 0.9)",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+              zIndex: 999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Loader className="w-6 h-6 animate-spin" />
+          </div>
+        )}
+      </HTMLContainer>
+    );
+  }
+
+  // Otherwise, render the regular chat shape view.
   return (
     <div style={{ position: "relative" }}>
       {isLoading && (
@@ -104,10 +150,7 @@ export function ChatShapeView({
           if (isEditingResponse) e.stopPropagation();
         }}
       >
-        {/* Header fixed at top */}
         <ChatShapeHeader strokeColor={strokeColor} onContextClick={onContextSend} />
-
-        {/* AI response region */}
         {!hideResponse && (
           <div style={{ flex: 1, overflow: "auto" }}>
             <ChatShapeContent
@@ -120,8 +163,6 @@ export function ChatShapeView({
             />
           </div>
         )}
-
-        {/* Divider */}
         {!hideResponse && (
           <div
             style={{
@@ -147,13 +188,13 @@ export function ChatShapeView({
             <div style={{ flex: 1, height: "0.07px", backgroundColor: "black" }} />
           </div>
         )}
-
-        {/* Prompt region */}
-        <div style={{ 
-          height: hideResponse ? "calc(100% - 32px)" : promptHeight, 
-          overflow: "auto",
-          flex: hideResponse ? 1 : undefined
-        }}>
+        <div
+          style={{
+            height: hideResponse ? "calc(100% - 32px)" : promptHeight,
+            overflow: "auto",
+            flex: hideResponse ? 1 : undefined,
+          }}
+        >
           <ChatShapeFooter
             prompt={localPrompt}
             onChange={onPromptChange}
@@ -162,5 +203,5 @@ export function ChatShapeView({
         </div>
       </HTMLContainer>
     </div>
-  )
+  );
 }

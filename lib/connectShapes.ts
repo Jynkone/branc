@@ -10,8 +10,12 @@ import type { Editor } from 'tldraw'
 /**
  * Creates a new arrow shape that connects a parent box (start) to a child box (end).
  *
- * If either the parent or child shape is marked as a suggestion (via a custom property),
- * the arrow's meta field will be set to include { isSuggestion: true, suggestionGeneration: 2 }.
+ * If either the parent or child shape is marked as a suggestion (via custom property on props),
+ * the arrow's meta field is set to include:
+ *   - isSuggestion: true
+ *   - suggestionGeneration: 2
+ *   - connectedFrom: parentBoxId
+ *   - connectedTo: childBoxId
  *
  * @param editor The editor instance.
  * @param parentBoxId The TLShapeId of the parent box.
@@ -22,7 +26,7 @@ export function connectShapes(
   parentBoxId: TLShapeId,
   childBoxId: TLShapeId
 ): void {
-  // Minimal arrow properties to satisfy the schema.
+  // Minimal arrow properties.
   const arrowProps: TLArrowShapeProps = {
     bend: 0,
     arrowheadEnd: 'arrow',
@@ -43,17 +47,16 @@ export function connectShapes(
   // Generate an arrow shape ID.
   const arrowShapeId = ('shape:arrow:' + Math.random().toString(36).slice(2, 10)) as TLShapeId
 
-  // Retrieve the parent and child shapes.
+  // Retrieve parent and child shapes.
   const parentShape = editor.getShape(parentBoxId)
   const childShape = editor.getShape(childBoxId)
 
-  // Check for our custom suggestion flag in the parent's or child's props.
-  // Cast props as any to avoid type errors.
+  // Check if either endpoint is a suggestion (casting props as any to bypass type restrictions).
   const isSuggestion =
     (parentShape && ((parentShape.props as any)?.isSuggestion)) ||
     (childShape && ((childShape.props as any)?.isSuggestion))
 
-  // Create the arrow shape.
+  // Create the arrow shape with custom suggestion metadata if needed.
   const arrowShape: TLArrowShape = {
     id: arrowShapeId,
     type: 'arrow',
@@ -65,16 +68,20 @@ export function connectShapes(
     parentId: ('page' as unknown) as TLArrowShape['parentId'],
     isLocked: false,
     opacity: 1,
-    // Use the meta field to store custom suggestion metadata.
     meta: isSuggestion
-      ? ({ isSuggestion: true, suggestionGeneration: 2 } as any)
+      ? ({
+          isSuggestion: true,
+          suggestionGeneration: 2,
+          connectedFrom: parentBoxId,
+          connectedTo: childBoxId,
+        } as any)
       : {},
     typeName: 'shape',
   }
 
   editor.createShape(arrowShape)
 
-  // Create bindings for the arrow's start and end.
+  // Create bindings for start and end.
   const bindings: TLBindingCreate[] = [
     {
       id: ('binding:' + arrowShapeId + '-start') as any,

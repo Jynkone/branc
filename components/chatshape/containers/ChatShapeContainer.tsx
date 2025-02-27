@@ -10,7 +10,7 @@ import { ChatShapeView } from "./ChatShapeView";
 import { useQuota } from "@/components/hooks/useQuota";
 import { TLShapeId } from "@tldraw/tlschema";
 
-// Optional registry for suggestion shapes.
+// Optional registry for suggestions.
 const suggestionRegistry = new Map<string, string[]>();
 
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
@@ -47,7 +47,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const allShapes = editor.getCurrentPageShapes();
 
     allShapes.forEach((s: any) => {
-      // For chatboxes with suggestion properties in props.
+      // For chatboxes with suggestion data in props.
       if (s.props?.isSuggestion) {
         if (s.props.suggestionGeneration === 2) {
           editor.updateShape({
@@ -63,7 +63,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           });
         }
       }
-      // For arrow shapes with suggestion data stored in meta.
+      // For arrows with suggestion data in meta.
       else if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         if ((s.meta as any).suggestionGeneration === 2) {
           editor.updateShape({
@@ -93,6 +93,25 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   }
   // --- End Global Cleanup Helper ---
 
+  // --- Helper: Update arrows for an accepted suggestion ---
+  function updateArrowsForAcceptedSuggestion(acceptedId: TLShapeId) {
+    const allShapes = editor.getCurrentPageShapes();
+    allShapes.forEach((s: any) => {
+      if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
+        const meta = s.meta as any;
+        if (meta.connectedFrom === acceptedId || meta.connectedTo === acceptedId) {
+          // Clear suggestion metadata so this arrow is no longer part of the suggestion lifecycle.
+          editor.updateShape({
+            id: s.id,
+            type: s.type,
+            meta: {} as any,
+          });
+        }
+      }
+    });
+  }
+  // --- End Helper ---
+
   // --- Chat Logic ---
   async function sendPrompt() {
     setIsLoading(true);
@@ -107,7 +126,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // Run global cleanup: shift all suggestion shapes and delete those at generation 0.
+      // Global cleanup for suggestions.
       updateAndCleanupSuggestionBoxes();
 
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
@@ -185,6 +204,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
 
+      // Also create a connecting arrow.
       connectShapes(editor, parentId, suggestionId);
     });
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
@@ -245,6 +265,49 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   }
 
+  async function handleSendFromSuggestion() {
+    if (!shape.props.isSuggestion) {
+      return sendPrompt();
+    }
+    setIsLoading(true);
+    try {
+      // Unhide the AI response area and mark the suggestion as accepted.
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: {
+          ...shape.props,
+          hideResponse: false,
+          isSuggestion: false,
+        },
+      });
+      // Global cleanup.
+      updateAndCleanupSuggestionBoxes();
+      // Clear suggestion metadata on any connected arrows.
+      updateArrowsForAcceptedSuggestion(shape.id);
+
+      const { response, followUpQuestions } = await getChatResponse(localPrompt);
+      editor.updateShape({
+        id: shape.id,
+        type: "chat",
+        props: {
+          ...shape.props,
+          response: response,
+          hideResponse: false,
+          isSuggestion: false,
+        },
+      });
+      if (followUpQuestions && followUpQuestions.length > 0) {
+        setTimeout(() => createSuggestionBoxes(shape.id as TLShapeId, followUpQuestions, 2), 1000);
+      }
+      refetchQuota();
+    } catch (err) {
+      console.error("Error generating response from suggestion:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   function handleEditMouseDown(e: React.MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
@@ -290,44 +353,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         props: { ...shape.props, response: newText },
       });
     });
-  }
-
-  async function handleSendFromSuggestion() {
-    if (!shape.props.isSuggestion) {
-      return sendPrompt();
-    }
-    setIsLoading(true);
-    try {
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: {
-          ...shape.props,
-          hideResponse: false,
-          isSuggestion: false,
-        },
-      });
-      updateAndCleanupSuggestionBoxes();
-      const { response, followUpQuestions } = await getChatResponse(localPrompt);
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: {
-          ...shape.props,
-          response: response,
-          hideResponse: false,
-          isSuggestion: false,
-        },
-      });
-      if (followUpQuestions && followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(shape.id as TLShapeId, followUpQuestions, 2), 1000);
-      }
-      refetchQuota();
-    } catch (err) {
-      console.error("Error generating response from suggestion:", err);
-    } finally {
-      setIsLoading(false);
-    }
   }
 
   return (
