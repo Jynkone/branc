@@ -54,11 +54,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         const meta = s.meta as any;
         if (meta.connectedFrom === acceptedId || meta.connectedTo === acceptedId) {
-          // Preserve connection info but mark as accepted.
+          // Clear suggestion metadata from arrows and set full opacity.
           editor.updateShape({
             id: s.id,
             type: s.type,
-            meta: { connectedFrom: meta.connectedFrom, connectedTo: meta.connectedTo, wasAcceptedSuggestion: true },
+            meta: { connectedFrom: meta.connectedFrom, connectedTo: meta.connectedTo },
             opacity: 1,
           });
         }
@@ -70,10 +70,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   // --- Cleanup Cycle: Downgrade and Delete Old Suggestions ---
   function cycleSuggestionCleanup() {
     const allShapes = editor.getCurrentPageShapes();
-    // First pass: Downgrade suggestion boxes and arrows if not accepted.
+    // First pass: Downgrade suggestion boxes and arrows (skip accepted ones)
     allShapes.forEach((s: any) => {
-      // Skip accepted suggestions.
-      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) return;
+      // Skip if the shape's branchType is "accepted"
+      if (s.props?.branchType === "accepted" || (s.meta as any)?.branchType === "accepted") return;
       
       // For suggestion chatboxes:
       if (s.props?.isSuggestion) {
@@ -113,9 +113,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       }
     });
 
-    // Second pass: Delete any suggestion boxes or arrows at generation 0.
+    // Second pass: Delete any suggestion boxes or arrows at generation 0
     const shapesToDelete = editor.getCurrentPageShapes().filter((s: any) => {
-      if (s.props?.wasAcceptedSuggestion || (s.meta as any)?.wasAcceptedSuggestion) return false;
+      // Skip accepted ones.
+      if (s.props?.branchType === "accepted" || (s.meta as any)?.branchType === "accepted") return false;
       if (s.props?.isSuggestion && s.props.suggestionGeneration === 0) return true;
       if (s.type === "arrow" && (s.meta as any)?.isSuggestion && (s.meta as any).suggestionGeneration === 0) return true;
       return false;
@@ -140,7 +141,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // Send the prompt without interfering cleanup.
+      // Send the prompt without running cleanup inline.
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
 
@@ -165,11 +166,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
 
-      // If there are follow-up questions, create new suggestions as generation 2.
+      // If there are follow-up questions, create new suggestions (generation 2).
       if (followUpQuestions && followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
-      // Then cycle previous suggestions.
+      // Then run the cleanup cycle to downgrade and delete previous suggestions.
       cycleSuggestionCleanup();
 
       refetchQuota();
@@ -288,7 +289,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
     setIsLoading(true);
     try {
-      // Mark the suggestion as accepted without running cleanup inline.
+      // Mark the suggestion as accepted by setting branchType to "accepted".
       editor.updateShape({
         id: shape.id,
         type: "chat",
@@ -297,7 +298,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           hideResponse: false,
           isSuggestion: false,
           branchType: "accepted",
-          wasAcceptedSuggestion: true,
         },
         opacity: 1,
       });
@@ -334,16 +334,14 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           hideResponse: false,
           isSuggestion: false,
           branchType: "accepted",
-          wasAcceptedSuggestion: true,
         },
       });
       
-      // If there are follow-up questions, create new suggestions with generation 2.
       if (parsedResponse.followUpQuestions && parsedResponse.followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(shape.id, parsedResponse.followUpQuestions, 2), 1000);
       }
       
-      // Then cycle previous suggestions.
+      // Cycle previous suggestions.
       cycleSuggestionCleanup();
       
       refetchQuota();
