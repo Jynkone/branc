@@ -8,6 +8,7 @@ import {
   DefaultToolbarContent,
   TLComponents,
   TLUiOverrides,
+  DefaultMainMenu,
   TLUiAssetUrlOverrides,
   TldrawUiMenuItem,
   useIsToolSelected,
@@ -72,7 +73,7 @@ const components: TLComponents = {
     );
   },
   PageMenu: null,
-  MainMenu: null,
+  MainMenu: DefaultMainMenu,
   DebugPanel: null,
 };
 
@@ -348,8 +349,7 @@ export function Canvas({ userId }: { userId: string }) {
       <div
         style={{
           position: "absolute",
-          top: 10,
-          left: 10,
+          left: 230,
           zIndex: 3000,
           display: "flex",
           gap: "8px",
