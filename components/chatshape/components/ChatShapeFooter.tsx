@@ -38,7 +38,7 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         gap: '8px',
         padding: '8px 16px',
         boxSizing: 'border-box',

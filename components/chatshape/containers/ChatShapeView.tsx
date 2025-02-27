@@ -168,7 +168,7 @@ export function ChatShapeView({
             style={{
               display: "flex",
               alignItems: "center",
-              height: "16px",
+              height: "1px",
               userSelect: "none",
             }}
           >
