@@ -54,7 +54,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       if (s.type === "arrow" && (s.meta as any)?.isSuggestion) {
         const meta = s.meta as any;
         if (meta.connectedFrom === acceptedId || meta.connectedTo === acceptedId) {
-          // Mark arrow as accepted by setting its branchType.
+          // Mark arrow as accepted by setting branchType to "accepted"
           editor.updateShape({
             id: s.id,
             type: s.type,
@@ -70,20 +70,17 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
   // --- Cleanup Cycle: Downgrade and Delete Old Suggestions ---
   function cycleSuggestionCleanup() {
     const allShapes = editor.getCurrentPageShapes();
-    // Determine if any accepted suggestion is protected (i.e. accepted from generation 1).
-    const protectedExists = allShapes.some((s: any) => s.props?.branchType === "accepted" && s.props?.protectedSuggestion);
+    // Check if any accepted suggestion is protected (i.e. accepted from generation 1)
+    const protectedExists = allShapes.some((s: any) => s.props?.branchType === "accepted" && s.props?.suggestionGeneration === 1);
 
-    // First pass: Downgrade suggestion boxes and arrows (skip accepted/protected ones)
+    // First pass: Downgrade suggestion boxes and arrows (skip accepted ones)
     allShapes.forEach((s: any) => {
-      // Skip accepted shapes and arrows (branchType === "accepted").
-      if ((s.props?.branchType && s.props.branchType === "accepted") || (s.meta && s.meta.branchType === "accepted")) {
-        return;
-      }
-      
+      // Skip accepted shapes (branchType === "accepted")
+      if ((s.props?.branchType && s.props.branchType === "accepted") || (s.meta && s.meta.branchType === "accepted")) return;
+
       // For suggestion chatboxes:
       if (s.props?.isSuggestion) {
         if (s.props.suggestionGeneration === 2) {
-          // Downgrade from generation 2 to generation 1.
           editor.updateShape({
             id: s.id,
             type: s.type,
@@ -91,7 +88,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
             opacity: 0.25,
           });
         } else if (s.props.suggestionGeneration === 1 && !protectedExists) {
-          // Only downgrade from generation 1 to 0 if no protected accepted suggestion exists.
           editor.updateShape({
             id: s.id,
             type: s.type,
@@ -147,7 +143,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
-      // Send the prompt as normal without interference.
+      // Send prompt as normal
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
 
@@ -172,11 +168,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
 
-      // If follow-up questions exist, create new suggestions (generation 2).
       if (followUpQuestions && followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
-      // Then run the cleanup cycle to downgrade and delete older suggestions.
       cycleSuggestionCleanup();
 
       refetchQuota();
@@ -226,7 +220,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
         opacity: generation === 2 ? 0.55 : generation === 1 ? 0.25 : 0.1,
       });
-      // Create a connecting arrow.
+      // Create connecting arrow.
       connectShapes(editor, parentId, suggestionId);
     });
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
@@ -294,12 +288,12 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
     setIsLoading(true);
     try {
-      // Determine the current generation of the suggestion.
+      // Determine current generation.
       const currentGeneration = shape.props.suggestionGeneration;
-      // If the accepted suggestion came from generation 1, mark it as protected.
+      // If accepted from generation 1, mark it as protected by keeping generation at 1.
       const protectedFlag = currentGeneration === 1;
 
-      // Mark the suggestion as accepted and protect it if needed.
+      // Mark suggestion as accepted.
       editor.updateShape({
         id: shape.id,
         type: "chat",
@@ -308,8 +302,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           hideResponse: false,
           isSuggestion: false,
           branchType: "accepted",
-          // Instead of adding an unexpected property, use branchType "accepted"
-          // and, if protected, keep suggestionGeneration as 1.
           suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
         },
         opacity: 1,
@@ -317,7 +309,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       
       updateArrowsForAcceptedSuggestion(shape.id);
       
-      // Send the prompt as-is.
+      // Send the prompt.
       let result = await getChatResponse(localPrompt);
       let parsedResponse: { response: string; followUpQuestions: string[] };
       if (typeof result === "string") {
@@ -355,7 +347,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         setTimeout(() => createSuggestionBoxes(shape.id, parsedResponse.followUpQuestions, 2), 1000);
       }
       
-      // Only run the cleanup cycle if the accepted suggestion was not protected.
+      // Only run cleanup if the accepted suggestion came from generation 2.
       if (!protectedFlag) {
         cycleSuggestionCleanup();
       }
