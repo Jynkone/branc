@@ -137,20 +137,19 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     setIsLoading(true);
     let newShapeId: TLShapeId;
     try {
-      // We still track childCount for other purposes
       const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
       ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
-  
-      // Use the improved dynamic positioning system
-      const { x: newX, y: newY } = findBestPosition(editor, shape.id, 'standard');
-      
-      const userEditedAIResponse = localResponse !== shape.props.response;
+
+      const position = findBestPosition(editor, shape.id, 'standard');
+      const newX = position.x;
+      const newY = position.y;
+        const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
-  
+
       // Send the prompt as normal without interference.
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
-  
+
       editor.createShape({
         id: newShapeId,
         type: "chat",
@@ -162,7 +161,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           branchType: "normal",
           w: CHATSHAPE_DIMENSIONS.STANDARD.width,
           h: CHATSHAPE_DIMENSIONS.STANDARD.height,
-          dateCreated: Date.now(),
+            dateCreated: Date.now(),
           color: shape.props.color,
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
@@ -171,70 +170,69 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
-  
+
       // If follow-up questions exist, create new suggestions (generation 2).
       if (followUpQuestions && followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
       // Then run the cleanup cycle to downgrade and delete older suggestions.
       cycleSuggestionCleanup();
-  
+
     } catch (err) {
       console.error("Error generating chat response:", err);
     } finally {
       setIsLoading(false);
     }
   }
-  
+
   function createSuggestionBoxes(parentId: TLShapeId, questions: string[], generation: number) {
     const parentShape = editor.getShape(parentId);
     if (!parentShape) return;
-  
-    // Use findBestPosition to get both position and direction
-    const { x: baseX, y: baseY, direction } = findBestPosition(editor, parentId, 'suggestion');
-    
+
+    const samplePosition = findBestPosition(editor, parentId, 'standard');
+    const bestDirection = determineDirection(parentShape, samplePosition);
+
+
     const suggestionIds: TLShapeId[] = [];
     questions.forEach((question, index) => {
-      // Use the same angle spread logic for the fan
       const angleSpread = (2 * Math.PI) / 3; // 120 degrees  
       const startAngle = -angleSpread / 2; 
       const angle = startAngle + (angleSpread * index) / Math.max(1, questions.length - 1);
       const radius = 350;
       
       // Adjust the angle based on the best direction
-      const adjustedAngle = adjustAngleForDirection(angle, direction);
+      const adjustedAngle = adjustAngleForDirection(angle, bestDirection);
       
       // Calculate offsets using the adjusted angle
       const offsetX = radius * Math.cos(adjustedAngle);
       const offsetY = radius * Math.sin(adjustedAngle);
       
-      // Calculate the base position for the fan
-      let fanBaseX = parentShape.x;
-      let fanBaseY = parentShape.y;
+      // Position relative to the appropriate edge of parent box
+      let newX = parentShape.x;
+      let newY = parentShape.y;
       
-      // Position the fan base at the appropriate edge
-      switch(direction) {
+      // Adjust base position based on direction
+      switch(bestDirection) {
         case 'right':
-          fanBaseX = parentShape.x + parentShape.props.w;
+          newX += parentShape.props.w;
           break;
         case 'left':
-          fanBaseX = parentShape.x;
+          newX -= 0; // Base position at left edge
           break;
         case 'bottom':
-          fanBaseY = parentShape.y + parentShape.props.h;
+          newY += parentShape.props.h;
           break;
         case 'top':
-          fanBaseY = parentShape.y;
+          newY -= 0; // Base position at top edge
           break;
       }
       
-      // Add the calculated offsets to the fan base
-      const newX = fanBaseX + offsetX;
-      const newY = fanBaseY + offsetY;
-      
-      const suggestionId = makeShapeID();
+      // Add the calculated offsets
+      newX += offsetX;
+      newY += offsetY;
+        const suggestionId = makeShapeID();
       suggestionIds.push(suggestionId);
-  
+
       editor.createShape({
         id: suggestionId,
         type: "chat",
@@ -246,7 +244,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           branchType: "suggestion",
           w: CHATSHAPE_DIMENSIONS.SUGGESTION.width,
           h: CHATSHAPE_DIMENSIONS.SUGGESTION.height,
-          dateCreated: Date.now(),
+            dateCreated: Date.now(),
           color: parentShape.props.color,
           dash: parentShape.props.dash,
           promptHeight: parentShape.props.promptHeight,
@@ -258,13 +256,35 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
         opacity: generation === 2 ? 0.75 : generation === 1 ? 0.75 : 0.1,
       });
-      
+      // Create a connecting arrow.
       connectShapes(editor, parentId, suggestionId);
     });
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
   }
-  
 
+  function determineDirection(
+    parentShape: any, 
+    position: {x: number, y: number}
+  ): 'right' | 'left' | 'top' | 'bottom' {
+    // Calculate the center of the parent
+    const parentCenterX = parentShape.x + (parentShape.props.w / 2);
+    const parentCenterY = parentShape.y + (parentShape.props.h / 2);
+    
+    // Calculate position relative to parent center
+    const relX = position.x - parentCenterX;
+    const relY = position.y - parentCenterY;
+    
+    // Determine the dominant direction
+    if (Math.abs(relX) > Math.abs(relY)) {
+      // Horizontal dominance
+      return relX > 0 ? 'right' : 'left';
+    } else {
+      // Vertical dominance
+      return relY > 0 ? 'bottom' : 'top';
+    }
+  }
+  
+  // Helper function to adjust the fan angle based on the direction
   function adjustAngleForDirection(angle: number, direction: 'right' | 'left' | 'top' | 'bottom'): number {
     switch(direction) {
       case 'right':
@@ -279,7 +299,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         return angle;
     }
   }
-    
+  
 
   async function handleContextSend(e: React.MouseEvent) {
     e.preventDefault();
@@ -288,12 +308,13 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     let newShapeId: TLShapeId;
     const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
     ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
-  
-    // Use the improved dynamic positioning system
-    const { x: newX, y: newY } = findBestPosition(editor, shape.id, 'standard');
-    
-    const context = localResponse;
-  
+
+    const position = findBestPosition(editor, shape.id, 'standard');
+    const newX = position.x;
+    const newY = position.y;
+
+      const context = localResponse;
+
     try {
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
@@ -317,19 +338,19 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
-  
+
       if (followUpQuestions && followUpQuestions.length > 0) {
         setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
       }
       cycleSuggestionCleanup();
-  
+
     } catch (err) {
       console.error("Error re-sending context:", err);
     } finally {
       setIsLoading(false);
     }
   }
-  
+
   async function handleSendFromSuggestion() {
     if (!shape.props.isSuggestion) {
       return sendPrompt();
