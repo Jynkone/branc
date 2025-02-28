@@ -6,16 +6,15 @@ import { getBranchOffset } from "../utils/mathHelpers";
 import { makeShapeID } from "@/lib/makeShapeID";
 import { connectShapes } from "@/lib/connectShapes";
 import { ChatShapeView } from "./ChatShapeView";
-import { useQuota } from "@/components/hooks/useQuota";
 import { TLShapeId } from "@tldraw/tlschema";
 import { ChatShapeUtil, CHATSHAPE_DIMENSIONS } from '../ChatShapeUtil';
+import { findBestPosition } from "@/lib/findBestPosition";
 
 // Optional registry for suggestions.
 const suggestionRegistry = new Map<string, string[]>();
 
 export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor: any }) {
   const { getChatResponse } = useChatAPI();
-  const { refetch: refetchQuota } = useQuota();
 
   const [localPrompt, setLocalPrompt] = useState(shape.props.prompt);
   const [localResponse, setLocalResponse] = useState(shape.props.response);
@@ -142,10 +141,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
       ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
 
-      const { x: offsetX, y: offsetY } = getBranchOffset(childCount, 120, 30);
-      const newX = shape.x + shape.props.w + offsetX;
-      const newY = shape.y + offsetY;
-      const userEditedAIResponse = localResponse !== shape.props.response;
+      const position = findBestPosition(editor, shape.id, 'standard');
+      const newX = position.x;
+      const newY = position.y;
+        const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
 
       // Send the prompt as normal without interference.
@@ -180,7 +179,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       // Then run the cleanup cycle to downgrade and delete older suggestions.
       cycleSuggestionCleanup();
 
-      refetchQuota();
     } catch (err) {
       console.error("Error generating chat response:", err);
     } finally {
@@ -192,26 +190,47 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const parentShape = editor.getShape(parentId);
     if (!parentShape) return;
 
+    const samplePosition = findBestPosition(editor, parentId, 'standard');
+    const bestDirection = determineDirection(parentShape, samplePosition);
+
+
     const suggestionIds: TLShapeId[] = [];
     questions.forEach((question, index) => {
-      const angleSpread = (2 * Math.PI) / 3; // 120 degrees
-    
-      // Start at top-right (-60 degrees from horizontal right)
+      const angleSpread = (2 * Math.PI) / 3; // 120 degrees  
       const startAngle = -angleSpread / 2; 
-      
-      // Calculate current angle based on position in sequence
       const angle = startAngle + (angleSpread * index) / Math.max(1, questions.length - 1);
-      
-      // Use larger radius for more spacing
       const radius = 350;
       
-      // Calculate offsets from right edge of parent box
-      const offsetX = radius * Math.cos(angle);
-      const offsetY = radius * Math.sin(angle);
+      // Adjust the angle based on the best direction
+      const adjustedAngle = adjustAngleForDirection(angle, bestDirection);
       
-      // Position relative to the RIGHT EDGE of parent box
-      const newX = parentShape.x + parentShape.props.w + offsetX;
-      const newY = parentShape.y + offsetY;
+      // Calculate offsets using the adjusted angle
+      const offsetX = radius * Math.cos(adjustedAngle);
+      const offsetY = radius * Math.sin(adjustedAngle);
+      
+      // Position relative to the appropriate edge of parent box
+      let newX = parentShape.x;
+      let newY = parentShape.y;
+      
+      // Adjust base position based on direction
+      switch(bestDirection) {
+        case 'right':
+          newX += parentShape.props.w;
+          break;
+        case 'left':
+          newX -= 0; // Base position at left edge
+          break;
+        case 'bottom':
+          newY += parentShape.props.h;
+          break;
+        case 'top':
+          newY -= 0; // Base position at top edge
+          break;
+      }
+      
+      // Add the calculated offsets
+      newX += offsetX;
+      newY += offsetY;
         const suggestionId = makeShapeID();
       suggestionIds.push(suggestionId);
 
@@ -244,6 +263,45 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
   }
 
+  function determineDirection(
+    parentShape: any, 
+    position: {x: number, y: number}
+  ): 'right' | 'left' | 'top' | 'bottom' {
+    // Calculate the center of the parent
+    const parentCenterX = parentShape.x + (parentShape.props.w / 2);
+    const parentCenterY = parentShape.y + (parentShape.props.h / 2);
+    
+    // Calculate position relative to parent center
+    const relX = position.x - parentCenterX;
+    const relY = position.y - parentCenterY;
+    
+    // Determine the dominant direction
+    if (Math.abs(relX) > Math.abs(relY)) {
+      // Horizontal dominance
+      return relX > 0 ? 'right' : 'left';
+    } else {
+      // Vertical dominance
+      return relY > 0 ? 'bottom' : 'top';
+    }
+  }
+  
+  // Helper function to adjust the fan angle based on the direction
+  function adjustAngleForDirection(angle: number, direction: 'right' | 'left' | 'top' | 'bottom'): number {
+    switch(direction) {
+      case 'right':
+        return angle; // Default fan is to the right
+      case 'left':
+        return Math.PI + angle; // Rotate 180 degrees
+      case 'bottom':
+        return Math.PI/2 + angle; // Rotate 90 degrees
+      case 'top':
+        return -Math.PI/2 + angle; // Rotate -90 degrees
+      default:
+        return angle;
+    }
+  }
+  
+
   async function handleContextSend(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -252,16 +310,11 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
     ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
 
-    const getFanOffset = (childIndex: number, spacing = 120) => {
-      if (childIndex === 0) return 0;
-      const n = Math.ceil(childIndex / 2);
-      const sign = childIndex % 2 === 1 ? -1 : 1;
-      return sign * n * spacing;
-    };
+    const position = findBestPosition(editor, shape.id, 'standard');
+    const newX = position.x;
+    const newY = position.y;
 
-    const newX = shape.x + shape.props.w + 200;
-    const newY = shape.y + getFanOffset(childCount, 120);
-    const context = localResponse;
+      const context = localResponse;
 
     try {
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
@@ -292,7 +345,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       }
       cycleSuggestionCleanup();
 
-      refetchQuota();
     } catch (err) {
       console.error("Error re-sending context:", err);
     } finally {
@@ -376,7 +428,6 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         cycleSuggestionCleanup();
       }
       
-      refetchQuota();
     } catch (err) {
       console.error("Error generating response from suggestion:", err);
     } finally {

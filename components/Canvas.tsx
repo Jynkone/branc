@@ -29,8 +29,6 @@ import { Input } from "./ui/input";
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Pencil, Check, Plus } from "lucide-react";
 
-// Import the unified QuotaCard component
-import { QuotaCard } from "@/components/QuotaCard";
 
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "https://branc.ajeenkya29.workers.dev";
 console.log("WORKER_URL in production:", WORKER_URL);
@@ -469,19 +467,6 @@ export function Canvas({ userId }: { userId: string }) {
 
   return (
     <div ref={tldrawContainerRef} style={{ position: "fixed", inset: 0 }}>
-      {/* QuotaCard at the Top Center */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 3000,
-        }}
-      >
-        <QuotaCard />
-      </div>
-
       <Tldraw
         store={store}
         shapeUtils={[ChatShapeUtil] as any}
