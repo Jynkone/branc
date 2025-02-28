@@ -8,6 +8,7 @@ import { connectShapes } from "@/lib/connectShapes";
 import { ChatShapeView } from "./ChatShapeView";
 import { useQuota } from "@/components/hooks/useQuota";
 import { TLShapeId } from "@tldraw/tlschema";
+import { ChatShapeUtil, CHATSHAPE_DIMENSIONS } from '../ChatShapeUtil';
 
 // Optional registry for suggestions.
 const suggestionRegistry = new Map<string, string[]>();
@@ -212,9 +213,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           prompt: question,
           response: "",
           branchType: "suggestion",
-          w: parentShape.props.w,
-          h: parentShape.props.h,
-          dateCreated: Date.now(),
+          w: CHATSHAPE_DIMENSIONS.SUGGESTION.width,
+          h: CHATSHAPE_DIMENSIONS.SUGGESTION.height,
+            dateCreated: Date.now(),
           color: parentShape.props.color,
           dash: parentShape.props.dash,
           promptHeight: parentShape.props.promptHeight,
@@ -308,6 +309,8 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           hideResponse: false,
           isSuggestion: false,
           branchType: "accepted",
+          w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+          h: CHATSHAPE_DIMENSIONS.STANDARD.height,  
           // Instead of adding an unexpected property, use branchType "accepted"
           // and, if protected, keep suggestionGeneration as 1.
           suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
@@ -347,6 +350,8 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           hideResponse: false,
           isSuggestion: false,
           branchType: "accepted",
+          w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+          h: CHATSHAPE_DIMENSIONS.STANDARD.height,  
           suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
         },
       });

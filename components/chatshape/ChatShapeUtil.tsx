@@ -10,6 +10,10 @@ import { ChatShape } from "./ChatShapeTypes";
 import { ChatShapeContainer } from "./containers/ChatShapeContainer";
 import { TLShapeId } from "@tldraw/tlschema";
 
+export const CHATSHAPE_DIMENSIONS = {
+  STANDARD: { width: 300, height: 250 },
+  SUGGESTION: { width: 200, height: 80 }
+};
 
 export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
   static override type = "chat" as const;
@@ -78,8 +82,8 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
   
   getDefaultProps(): ChatShape["props"] {
     return {
-      w: 300,
-      h: 250,
+      w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+      h: CHATSHAPE_DIMENSIONS.STANDARD.height,
       prompt: "",
       response: "",
       branchType: "normal",
@@ -88,7 +92,7 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       isEditing: false,
       color: "black",
       dash: "draw",
-      parentId: "" as TLShapeId, // Cast default to TLShapeId
+      parentId: "" as TLShapeId,
       isSuggestion: false,
       suggestionGeneration: 0,
       hideResponse: false,
