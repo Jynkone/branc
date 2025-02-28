@@ -194,17 +194,25 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
 
     const suggestionIds: TLShapeId[] = [];
     questions.forEach((question, index) => {
-      const radius = 300;
-      const angleSpread = (4 * Math.PI) / 3; // Wider spread than π
-      const startAngle = -Math.PI/2 - angleSpread/2;
-
+      const angleSpread = (2 * Math.PI) / 3; // 120 degrees
+    
+      // Start at top-right (-60 degrees from horizontal right)
+      const startAngle = -angleSpread / 2; 
+      
+      // Calculate current angle based on position in sequence
       const angle = startAngle + (angleSpread * index) / Math.max(1, questions.length - 1);
+      
+      // Use larger radius for more spacing
+      const radius = 350;
+      
+      // Calculate offsets from right edge of parent box
       const offsetX = radius * Math.cos(angle);
       const offsetY = radius * Math.sin(angle);
-
-      const newX = parentShape.x + offsetX;
+      
+      // Position relative to the RIGHT EDGE of parent box
+      const newX = parentShape.x + parentShape.props.w + offsetX;
       const newY = parentShape.y + offsetY;
-      const suggestionId = makeShapeID();
+        const suggestionId = makeShapeID();
       suggestionIds.push(suggestionId);
 
       editor.createShape({
