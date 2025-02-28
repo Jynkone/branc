@@ -12,7 +12,7 @@ import { TLShapeId } from "@tldraw/tlschema";
 
 export const CHATSHAPE_DIMENSIONS = {
   STANDARD: { width: 300, height: 250 },
-  SUGGESTION: { width: 200, height: 80 }
+  SUGGESTION: { width: 250, height: 120 }
 };
 
 export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
