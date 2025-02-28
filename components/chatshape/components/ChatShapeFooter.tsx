@@ -37,12 +37,10 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
     <div
       style={{
         display: 'flex',
-        flexDirection: 'row',
         alignItems: 'flex-start',
-        gap: '8px',
-        padding: '8px 16px',
         boxSizing: 'border-box',
         height: '100%',
+        paddingRight: '4px',
       }}
     >
       <textarea
@@ -58,9 +56,11 @@ export const ChatShapeFooter: React.FC<ChatShapeFooterProps> = ({
           border: 'none',
           outline: 'none',
           resize: 'none',
+          fontSize: '12px',
           minHeight: '40px',
           overflowY: 'auto',
-          paddingTop: '11px',
+          paddingTop: '5px',
+          paddingLeft:'14px',
         }}
       />
       <Button

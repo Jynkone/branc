@@ -25,15 +25,13 @@ import { Button } from "./ui/button";
 import { getBookmarkPreview } from "@/lib/getBookmarkPreview";
 import { multiplayerAssetStore } from "@/lib/multiplayerAssetStore";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
-import { Label } from "./ui/label";
 import { Input } from "./ui/input";
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Pencil, Check, Plus, GripVertical } from "lucide-react";
+import { Pencil, Check, Plus } from "lucide-react";
 
 // Import the unified QuotaCard component
 import { QuotaCard } from "@/components/QuotaCard";
 
-// Replace this with your actual worker URL
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "https://branc.ajeenkya29.workers.dev";
 console.log("WORKER_URL in production:", WORKER_URL);
 
@@ -514,7 +512,7 @@ export function Canvas({ userId }: { userId: string }) {
         style={{ 
           position: "absolute", 
           left: `${selectorPosition}px`, 
-          top: "5px", 
+          top: "0px", 
           zIndex: 3000 
         }}
       >
@@ -526,6 +524,7 @@ export function Canvas({ userId }: { userId: string }) {
           size="sm" 
           variant="outline"
           onClick={handleShareBoard}
+          className="match-height"
         >
           Share
         </Button>
@@ -592,6 +591,7 @@ export function Canvas({ userId }: { userId: string }) {
           cursor: pointer;
           color: #333;
           font-weight: 500;
+          height: 40px; 
         }
         
         .tldraw-page-button:hover {
@@ -689,6 +689,12 @@ export function Canvas({ userId }: { userId: string }) {
           width: 180px;
         }
         
+        .match-height {
+         height: 33px !important; /* or 40px, whichever you need */
+         * You can also tweak line-height or padding if needed */
+        }
+
+
         .tldraw-style-panel,
         .tlui-style-panel {
           top: 45px !important;

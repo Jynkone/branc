@@ -88,7 +88,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
             id: s.id,
             type: s.type,
             props: { ...s.props, suggestionGeneration: 1 },
-            opacity: 0.4,
+            opacity: 0.75,
           });
         } else if (s.props.suggestionGeneration === 1 && !protectedExists) {
           // Only downgrade from generation 1 to 0 if no protected accepted suggestion exists.
@@ -107,7 +107,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
             id: s.id,
             type: s.type,
             meta: { ...(s.meta as any), suggestionGeneration: 1 },
-            opacity: 0.4,
+            opacity: 0.75,
           });
         } else if ((s.meta as any).suggestionGeneration === 1 && !protectedExists) {
           editor.updateShape({
@@ -224,7 +224,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           suggestionGeneration: generation,
           hideResponse: true,
         },
-        opacity: generation === 2 ? 0.75 : generation === 1 ? 0.4 : 0.1,
+        opacity: generation === 2 ? 0.75 : generation === 1 ? 0.75 : 0.1,
       });
       // Create a connecting arrow.
       connectShapes(editor, parentId, suggestionId);

@@ -57,14 +57,14 @@ export function ChatShapeView({
       if (suggestionMeta.suggestionGeneration === 2) {
         opacity = 0.75;
       } else if (suggestionMeta.suggestionGeneration === 1) {
-        opacity = 0.4;
+        opacity = 0.75;
       }
     }
   } else if (shape.props?.isSuggestion) {
     if (shape.props.suggestionGeneration === 2) {
       opacity = 0.75;
     } else if (shape.props.suggestionGeneration === 1) {
-      opacity = 0.4;
+      opacity = 0.75;
     }
   }
 
@@ -142,7 +142,7 @@ export function ChatShapeView({
           position: "relative",
           backgroundColor,
           border: `3px ${borderStyle} ${strokeColor}`,
-          borderRadius: "8px",
+          borderRadius: "5px",
           boxSizing: "border-box",
           opacity: opacity,
         }}
