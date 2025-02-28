@@ -18,7 +18,7 @@ export type ChatShape = TLBaseShape <
     dash: TLDefaultDashStyle
     promptHeight: number
     isEditing: boolean
-    parentId?: TLShapeId; // Add this to track the parent of suggestion boxes
+    parentId?: string ; // Add this to track the parent of suggestion boxes
     isSuggestion?: boolean // Indicates if this is a suggestion box
     suggestionGeneration?: number // Tracks which generation this suggestion belongs to
     hideResponse?: boolean // Whether to hide the response area initially
