@@ -161,9 +161,9 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           prompt: "",
           response: response,
           branchType: "normal",
-          w: shape.props.w,
-          h: shape.props.h,
-          dateCreated: Date.now(),
+          w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+          h: CHATSHAPE_DIMENSIONS.STANDARD.height,
+            dateCreated: Date.now(),
           color: shape.props.color,
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
@@ -195,7 +195,10 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     const suggestionIds: TLShapeId[] = [];
     questions.forEach((question, index) => {
       const radius = 300;
-      const angle = -Math.PI / 2 + (Math.PI * index) / (questions.length - 1);
+      const angleSpread = (4 * Math.PI) / 3; // Wider spread than π
+      const startAngle = -Math.PI/2 - angleSpread/2;
+
+      const angle = startAngle + (angleSpread * index) / Math.max(1, questions.length - 1);
       const offsetX = radius * Math.cos(angle);
       const offsetY = radius * Math.sin(angle);
 
@@ -264,8 +267,8 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           prompt: "",
           response: response,
           branchType: "context",
-          w: shape.props.w,
-          h: shape.props.h,
+          w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+          h: CHATSHAPE_DIMENSIONS.STANDARD.height,
           dateCreated: Date.now(),
           color: shape.props.color,
           dash: shape.props.dash,
