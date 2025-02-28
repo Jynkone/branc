@@ -1,6 +1,3 @@
-// New utility function to find the best position for a new chat box
-// Goes in lib/findBestPosition.ts
-
 import { TLShapeId } from "@tldraw/tlschema";
 import { CHATSHAPE_DIMENSIONS } from "@/components/chatshape/ChatShapeUtil";
 
@@ -10,6 +7,7 @@ type Direction = 'right' | 'bottom' | 'left' | 'top';
 // Padding between boxes
 const BOX_PADDING = 40;
 
+// Interface for shape information used in collision detection
 interface ShapeInfo {
   id: TLShapeId;
   x: number;
@@ -24,13 +22,13 @@ interface ShapeInfo {
  * @param editor - The TLDraw editor instance
  * @param parentId - The ID of the parent shape
  * @param boxType - Whether this is a standard box or suggestion box (affects dimensions)
- * @returns The {x, y} position for the new box
+ * @returns The {x, y, direction} position and direction for the new box
  */
 export function findBestPosition(
   editor: any, 
   parentId: TLShapeId, 
   boxType: 'standard' | 'suggestion' = 'standard'
-): { x: number, y: number } {
+): { x: number, y: number, direction: Direction } {
   // Get all shapes on the current page
   const allShapes = editor.getCurrentPageShapes();
   
@@ -39,7 +37,7 @@ export function findBestPosition(
   if (!parentShape) {
     console.error("Parent shape not found");
     // Fallback to default positioning to the right
-    return { x: 0, y: 0 };
+    return { x: 0, y: 0, direction: 'right' };
   }
   
   // Get the dimensions for the new box based on type
@@ -55,100 +53,67 @@ export function findBestPosition(
     w: s.props.w || 0,
     h: s.props.h || 0
   }));
-    
+  
+  // Get the viewport bounds to ensure shapes are visible
+  const viewport = editor.getViewportPageBounds ? 
+    editor.getViewportPageBounds() :
+    { x: 0, y: 0, width: 5000, height: 5000 }; // fallback if method not available
+  
   // Define the four directions and their base positions
   const directions: Direction[] = ['right', 'bottom', 'left', 'top'];
   
-  // Calculate a score for each direction based on available space
+  // Calculate a score for each direction based on available space and visibility
   const directionScores = directions.map(direction => {
-    // Start with four potential positions in each direction
-    const positionsToCheck = getPositionsInDirection(
+    // Get base position for this direction
+    const position = getBasePosition(
       parentShape, 
       direction, 
       newBoxDimensions.width, 
       newBoxDimensions.height
     );
     
-    // Count how many positions have no collisions
-    let availablePositions = 0;
-    for (const pos of positionsToCheck) {
-      const hasCollision = checkCollision(
-        { ...pos, w: newBoxDimensions.width, h: newBoxDimensions.height },
-        shapesInfo.filter(s => s.id !== parentId) // Exclude parent from collision check
-      );
-      
-      if (!hasCollision) {
-        availablePositions++;
-      }
-    }
+    // Check if position is fully in viewport
+    const isFullyVisible = 
+      position.x >= viewport.x &&
+      position.y >= viewport.y &&
+      position.x + newBoxDimensions.width <= viewport.x + viewport.width &&
+      position.y + newBoxDimensions.height <= viewport.y + viewport.height;
     
-    return { direction, score: availablePositions };
+    // Box shape for collision detection
+    const newBox = { 
+      x: position.x, 
+      y: position.y, 
+      w: newBoxDimensions.width, 
+      h: newBoxDimensions.height 
+    };
+    
+    // Count collisions with other shapes (excluding the parent)
+    const otherShapes = shapesInfo.filter(s => s.id !== parentId);
+    const collisionCount = countCollisions(newBox, otherShapes);
+    
+    // Score: Visibility is most important, then lack of collisions
+    let score = 0;
+    if (isFullyVisible) score += 1000;
+    score -= collisionCount * 100;
+    
+    // Additional points for preferred directions (right is often preferred)
+    if (direction === 'right') score += 50;
+    if (direction === 'bottom') score += 30;
+    
+    return { direction, position, score };
   });
   
   // Sort directions by their scores (highest first)
   directionScores.sort((a, b) => b.score - a.score);
   
   // Use the direction with the highest score
-  const bestDirection = directionScores[0].direction;
+  const best = directionScores[0];
   
-  // Get the base position for this direction
-  const basePosition = getBasePosition(
-    parentShape, 
-    bestDirection, 
-    newBoxDimensions.width, 
-    newBoxDimensions.height
-  );
-  
-  // Try to find a non-colliding position along this direction
-  const finalPosition = findNonCollidingPosition(
-    basePosition, 
-    bestDirection, 
-    newBoxDimensions.width, 
-    newBoxDimensions.height,
-    shapesInfo.filter(s => s.id !== parentId)
-  );
-  
-  return finalPosition;
-}
-
-/**
- * Gets several sample positions along a direction to check for collisions
- */
-function getPositionsInDirection(
-  parentShape: any, 
-  direction: Direction, 
-  newWidth: number, 
-  newHeight: number
-): Array<{x: number, y: number}> {
-  const basePos = getBasePosition(parentShape, direction, newWidth, newHeight);
-  const positions = [];
-  
-  // Create a spread of positions to check along the chosen direction
-  // This helps evaluate how "crowded" a direction is
-  switch (direction) {
-    case 'right':
-    case 'left':
-      // Check positions along the vertical axis
-      for (let i = -2; i <= 2; i++) {
-        positions.push({
-          x: basePos.x,
-          y: basePos.y + (i * 80) // Spread vertically
-        });
-      }
-      break;
-    case 'top':
-    case 'bottom':
-      // Check positions along the horizontal axis
-      for (let i = -2; i <= 2; i++) {
-        positions.push({
-          x: basePos.x + (i * 80), // Spread horizontally
-          y: basePos.y
-        });
-      }
-      break;
-  }
-  
-  return positions;
+  return { 
+    x: best.position.x, 
+    y: best.position.y, 
+    direction: best.direction 
+  };
 }
 
 /**
@@ -187,6 +152,41 @@ function getBasePosition(
 }
 
 /**
+ * Checks if two boxes collide
+ */
+function checkCollision(
+  box1: { x: number, y: number, w: number, h: number },
+  box2: { x: number, y: number, w: number, h: number }
+): boolean {
+  return (
+    box1.x < box2.x + box2.w &&
+    box1.x + box1.w > box2.x &&
+    box1.y < box2.y + box2.h &&
+    box1.y + box1.h > box2.y
+  );
+}
+
+/**
+ * Counts how many shapes collide with the given box
+ */
+function countCollisions(
+  box: { x: number, y: number, w: number, h: number },
+  shapes: ShapeInfo[]
+): number {
+  return shapes.filter(shape => checkCollision(box, shape)).length;
+}
+
+/**
+ * Checks if a box collides with any shape in the array
+ */
+function hasCollisionWithAnyShape(
+  box: { x: number, y: number, w: number, h: number },
+  shapes: ShapeInfo[]
+): boolean {
+  return shapes.some(shape => checkCollision(box, shape));
+}
+
+/**
  * Tries to find a position without collisions by adjusting along the direction
  */
 function findNonCollidingPosition(
@@ -201,7 +201,7 @@ function findNonCollidingPosition(
   const box = { ...position, w: width, h: height };
   
   // If there's no collision, return the base position
-  if (!checkCollision(box, shapes)) {
+  if (!hasCollisionWithAnyShape(box, shapes)) {
     return position;
   }
   
@@ -212,14 +212,14 @@ function findNonCollidingPosition(
     // Try positive offset
     const posOffset = applyOffset(position, direction, step);
     const posBox = { ...posOffset, w: width, h: height };
-    if (!checkCollision(posBox, shapes)) {
+    if (!hasCollisionWithAnyShape(posBox, shapes)) {
       return posOffset;
     }
     
     // Try negative offset
     const negOffset = applyOffset(position, direction, -step);
     const negBox = { ...negOffset, w: width, h: height };
-    if (!checkCollision(negBox, shapes)) {
+    if (!hasCollisionWithAnyShape(negBox, shapes)) {
       return negOffset;
     }
   }
@@ -261,24 +261,4 @@ function applyOffset(
     default:
       return position;
   }
-}
-
-/**
- * Checks if a box collides with any of the existing shapes
- */
-function checkCollision(
-  box: { x: number, y: number, w: number, h: number },
-  shapes: ShapeInfo[]
-): boolean {
-  for (const shape of shapes) {
-    if (
-      box.x < shape.x + shape.w &&
-      box.x + box.w > shape.x &&
-      box.y < shape.y + shape.h &&
-      box.y + box.h > shape.y
-    ) {
-      return true; // Collision detected
-    }
-  }
-  return false; // No collision
 }
