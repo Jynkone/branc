@@ -28,6 +28,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "./ui/input";
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Pencil, Check, Plus } from "lucide-react";
+import { rebuildEntireLayout } from '@/lib/dagreLayoutManager';
+import { LayoutGridIcon } from 'lucide-react';
 
 
 const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "https://branc.ajeenkya29.workers.dev";
@@ -419,6 +421,8 @@ export function Canvas({ userId }: { userId: string }) {
       );
     }
     
+    
+
     return (
       <div className="tldraw-page-selector">
         <button
@@ -429,6 +433,8 @@ export function Canvas({ userId }: { userId: string }) {
           {currentRoom.name}
         </button>
         
+        
+
         {isMenuOpen && (
           <div ref={menuRef} className="tldraw-pages-menu">
             <div className="tldraw-pages-menu-header">

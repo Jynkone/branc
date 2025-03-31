@@ -8,6 +8,8 @@ import { ChatShapeView } from "./ChatShapeView";
 import { TLShapeId } from "@tldraw/tlschema";
 import { ChatShapeUtil, CHATSHAPE_DIMENSIONS } from '../ChatShapeUtil';
 import { findBestPosition } from "@/lib/findBestPosition";
+import { reorganizeBranch, arrangeSuggestionFan } from "@/lib/findBestPosition";
+import { rebuildPartialLayout } from "@/lib/dagreLayoutManager";
 
 // Optional registry for suggestions.
 const suggestionRegistry = new Map<string, string[]>();
@@ -139,29 +141,27 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     try {
       const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
       ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
-
+  
       const position = findBestPosition(editor, shape.id, 'standard');
-      const newX = position.x;
-      const newY = position.y;
-        const userEditedAIResponse = localResponse !== shape.props.response;
+      const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
-
+  
       // Send the prompt as normal without interference.
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
-
+  
       editor.createShape({
         id: newShapeId,
         type: "chat",
-        x: newX,
-        y: newY,
+        x: position.x,
+        y: position.y,
         props: {
           prompt: "",
           response: response,
           branchType: "normal",
           w: CHATSHAPE_DIMENSIONS.STANDARD.width,
           h: CHATSHAPE_DIMENSIONS.STANDARD.height,
-            dateCreated: Date.now(),
+          dateCreated: Date.now(),
           color: shape.props.color,
           dash: shape.props.dash,
           promptHeight: shape.props.promptHeight,
@@ -170,97 +170,123 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
         },
       });
       connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
-
+  
       // If follow-up questions exist, create new suggestions (generation 2).
       if (followUpQuestions && followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(newShapeId, followUpQuestions, 2), 1000);
+        // Create suggestion boxes after a short delay
+        setTimeout(() => {
+          const suggestionIds = createSuggestionBoxes(newShapeId, followUpQuestions, 2);
+          
+          // Now reorganize the layout with the new suggestions
+          setTimeout(() => {
+            // Use Dagre to organize this branch including the new suggestions
+            arrangeSuggestionFan(editor, newShapeId, suggestionIds);
+          }, 100);
+        }, 500);
+      } else {
+        // Even without suggestions, reorganize this branch 
+        setTimeout(() => {
+          reorganizeBranch(editor, shape.id, [newShapeId]);
+        }, 200);
       }
+      
       // Then run the cleanup cycle to downgrade and delete older suggestions.
       cycleSuggestionCleanup();
-
+  
     } catch (err) {
       console.error("Error generating chat response:", err);
     } finally {
       setIsLoading(false);
     }
   }
+    
+// Update the createSuggestionBoxes function to return the created IDs:
+// Update the createSuggestionBoxes function to return the created IDs:
+function createSuggestionBoxes(
+  parentId: TLShapeId, 
+  questions: string[], 
+  generation: number
+): TLShapeId[] {
+  const parentShape = editor.getShape(parentId);
+  if (!parentShape) return [];
 
-  function createSuggestionBoxes(parentId: TLShapeId, questions: string[], generation: number) {
-    const parentShape = editor.getShape(parentId);
-    if (!parentShape) return;
+  const samplePosition = findBestPosition(editor, parentId, 'standard');
+  const bestDirection = determineDirection(parentShape, samplePosition);
 
-    const samplePosition = findBestPosition(editor, parentId, 'standard');
-    const bestDirection = determineDirection(parentShape, samplePosition);
+  const suggestionIds: TLShapeId[] = [];
+  questions.forEach((question, index) => {
+    const angleSpread = (2 * Math.PI) / 3; // 120 degrees  
+    const startAngle = -angleSpread / 2; 
+    const angle = startAngle + (angleSpread * index) / Math.max(1, questions.length - 1);
+    const radius = 350;
+    
+    // Adjust the angle based on the best direction
+    const adjustedAngle = adjustAngleForDirection(angle, bestDirection);
+    
+    // Calculate offsets using the adjusted angle
+    const offsetX = radius * Math.cos(adjustedAngle);
+    const offsetY = radius * Math.sin(adjustedAngle);
+    
+    // Position relative to the appropriate edge of parent box
+    let posX = parentShape.x;
+    let posY = parentShape.y;
+    
+    // Adjust base position based on direction
+    switch(bestDirection) {
+      case 'right':
+        posX += parentShape.props.w;
+        break;
+      case 'left':
+        posX -= 0; // Base position at left edge
+        break;
+      case 'bottom':
+        posY += parentShape.props.h;
+        break;
+      case 'top':
+        posY -= 0; // Base position at top edge
+        break;
+    }
+    
+    // Add the calculated offsets
+    posX += offsetX;
+    posY += offsetY;
+    
+    const suggestionId = makeShapeID();
+    suggestionIds.push(suggestionId);
 
-
-    const suggestionIds: TLShapeId[] = [];
-    questions.forEach((question, index) => {
-      const angleSpread = (2 * Math.PI) / 3; // 120 degrees  
-      const startAngle = -angleSpread / 2; 
-      const angle = startAngle + (angleSpread * index) / Math.max(1, questions.length - 1);
-      const radius = 350;
-      
-      // Adjust the angle based on the best direction
-      const adjustedAngle = adjustAngleForDirection(angle, bestDirection);
-      
-      // Calculate offsets using the adjusted angle
-      const offsetX = radius * Math.cos(adjustedAngle);
-      const offsetY = radius * Math.sin(adjustedAngle);
-      
-      // Position relative to the appropriate edge of parent box
-      let newX = parentShape.x;
-      let newY = parentShape.y;
-      
-      // Adjust base position based on direction
-      switch(bestDirection) {
-        case 'right':
-          newX += parentShape.props.w;
-          break;
-        case 'left':
-          newX -= 0; // Base position at left edge
-          break;
-        case 'bottom':
-          newY += parentShape.props.h;
-          break;
-        case 'top':
-          newY -= 0; // Base position at top edge
-          break;
-      }
-      
-      // Add the calculated offsets
-      newX += offsetX;
-      newY += offsetY;
-        const suggestionId = makeShapeID();
-      suggestionIds.push(suggestionId);
-
-      editor.createShape({
-        id: suggestionId,
-        type: "chat",
-        x: newX,
-        y: newY,
-        props: {
-          prompt: question,
-          response: "",
-          branchType: "suggestion",
-          w: CHATSHAPE_DIMENSIONS.SUGGESTION.width,
-          h: CHATSHAPE_DIMENSIONS.SUGGESTION.height,
-            dateCreated: Date.now(),
-          color: parentShape.props.color,
-          dash: parentShape.props.dash,
-          promptHeight: parentShape.props.promptHeight,
-          isEditing: false,
-          parentId: parentId,
-          isSuggestion: true,
-          suggestionGeneration: generation,
-          hideResponse: true,
-        },
-        opacity: generation === 2 ? 0.75 : generation === 1 ? 0.75 : 0.1,
-      });
-      // Create a connecting arrow.
-      connectShapes(editor, parentId, suggestionId);
+    editor.createShape({
+      id: suggestionId,
+      type: "chat",
+      x: posX,
+      y: posY,
+      props: {
+        prompt: question,
+        response: "",
+        branchType: "suggestion",
+        w: CHATSHAPE_DIMENSIONS.SUGGESTION.width,
+        h: CHATSHAPE_DIMENSIONS.SUGGESTION.height,
+        dateCreated: Date.now(),
+        color: parentShape.props.color,
+        dash: parentShape.props.dash,
+        promptHeight: parentShape.props.promptHeight,
+        isEditing: false,
+        parentId: parentId,
+        isSuggestion: true,
+        suggestionGeneration: generation,
+        hideResponse: true,
+      },
+      opacity: generation === 2 ? 0.75 : generation === 1 ? 0.75 : 0.1,
     });
-    suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
-  }
+    // Create a connecting arrow.
+    connectShapes(editor, parentId, suggestionId);
+  });
+  
+  // Store the suggestion IDs for later reference
+  suggestionRegistry.set(parentId, suggestionIds.map(id => id as string));
+  
+  // Return the created suggestion IDs
+  return suggestionIds;
+}
 
   function determineDirection(
     parentShape: any, 
@@ -351,89 +377,107 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     }
   }
 
-  async function handleSendFromSuggestion() {
-    if (!shape.props.isSuggestion) {
-      return sendPrompt();
-    }
-    setIsLoading(true);
-    try {
-      // Determine the current generation of the suggestion.
-      const currentGeneration = shape.props.suggestionGeneration;
-      // If the accepted suggestion came from generation 1, mark it as protected.
-      const protectedFlag = currentGeneration === 1;
-
-      // Mark the suggestion as accepted and protect it if needed.
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: {
-          ...shape.props,
-          hideResponse: false,
-          isSuggestion: false,
-          branchType: "accepted",
-          w: CHATSHAPE_DIMENSIONS.STANDARD.width,
-          h: CHATSHAPE_DIMENSIONS.STANDARD.height,  
-          // Instead of adding an unexpected property, use branchType "accepted"
-          // and, if protected, keep suggestionGeneration as 1.
-          suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
-        },
-        opacity: 1,
-      });
-      
-      updateArrowsForAcceptedSuggestion(shape.id);
-      
-      // Send the prompt as-is.
-      let result = await getChatResponse(localPrompt);
-      let parsedResponse: { response: string; followUpQuestions: string[] };
-      if (typeof result === "string") {
-        try {
-          const temp = JSON.parse(result);
-          parsedResponse = {
-            response: temp.response,
-            followUpQuestions: temp.followUpQuestions || [],
-          };
-        } catch (e) {
-          console.error("Error parsing JSON response:", e);
-          parsedResponse = { response: result, followUpQuestions: [] };
-        }
-      } else {
-        parsedResponse = {
-          response: result.response,
-          followUpQuestions: result.followUpQuestions || [],
-        };
-      }
-      
-      editor.updateShape({
-        id: shape.id,
-        type: "chat",
-        props: {
-          ...shape.props,
-          response: parsedResponse.response,
-          hideResponse: false,
-          isSuggestion: false,
-          branchType: "accepted",
-          w: CHATSHAPE_DIMENSIONS.STANDARD.width,
-          h: CHATSHAPE_DIMENSIONS.STANDARD.height,  
-          suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
-        },
-      });
-      
-      if (parsedResponse.followUpQuestions && parsedResponse.followUpQuestions.length > 0) {
-        setTimeout(() => createSuggestionBoxes(shape.id, parsedResponse.followUpQuestions, 2), 1000);
-      }
-      
-      // Only run the cleanup cycle if the accepted suggestion was not protected.
-      if (!protectedFlag) {
-        cycleSuggestionCleanup();
-      }
-      
-    } catch (err) {
-      console.error("Error generating response from suggestion:", err);
-    } finally {
-      setIsLoading(false);
-    }
+// Update the handleSendFromSuggestion function to reorganize after accepting a suggestion:
+async function handleSendFromSuggestion() {
+  if (!shape.props.isSuggestion) {
+    return sendPrompt();
   }
+  setIsLoading(true);
+  try {
+    // Determine the current generation of the suggestion.
+    const currentGeneration = shape.props.suggestionGeneration;
+    // If the accepted suggestion came from generation 1, mark it as protected.
+    const protectedFlag = currentGeneration === 1;
 
+    // Mark the suggestion as accepted and protect it if needed.
+    editor.updateShape({
+      id: shape.id,
+      type: "chat",
+      props: {
+        ...shape.props,
+        hideResponse: false,
+        isSuggestion: false,
+        branchType: "accepted",
+        w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+        h: CHATSHAPE_DIMENSIONS.STANDARD.height,  
+        // Instead of adding an unexpected property, use branchType "accepted"
+        // and, if protected, keep suggestionGeneration as 1.
+        suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
+      },
+      opacity: 1,
+    });
+    
+    updateArrowsForAcceptedSuggestion(shape.id);
+    
+    // Send the prompt as-is.
+    let result = await getChatResponse(localPrompt);
+    let responseData: { response: string; followUpQuestions: string[] };
+    
+    if (typeof result === "string") {
+      try {
+        const temp = JSON.parse(result);
+        responseData = {
+          response: temp.response,
+          followUpQuestions: temp.followUpQuestions || [],
+        };
+      } catch (e) {
+        console.error("Error parsing JSON response:", e);
+        responseData = { response: result, followUpQuestions: [] };
+      }
+    } else {
+      responseData = {
+        response: result.response,
+        followUpQuestions: result.followUpQuestions || [],
+      };
+    }
+    
+    editor.updateShape({
+      id: shape.id,
+      type: "chat",
+      props: {
+        ...shape.props,
+        response: responseData.response,
+        hideResponse: false,
+        isSuggestion: false,
+        branchType: "accepted",
+        w: CHATSHAPE_DIMENSIONS.STANDARD.width,
+        h: CHATSHAPE_DIMENSIONS.STANDARD.height,  
+        suggestionGeneration: protectedFlag ? 1 : shape.props.suggestionGeneration,
+      },
+    });
+    
+    if (responseData.followUpQuestions && responseData.followUpQuestions.length > 0) {
+      setTimeout(() => {
+        const newSuggestionIds = createSuggestionBoxes(
+          shape.id, 
+          responseData.followUpQuestions, 
+          2
+        );
+        
+        // Reorganize with the new suggestions
+        setTimeout(() => {
+          arrangeSuggestionFan(editor, shape.id, newSuggestionIds);
+        }, 100);
+      }, 500);
+    } else {
+      // Even without new suggestions, reorganize to reflect the acceptance
+      setTimeout(() => {
+        reorganizeBranch(editor, shape.id);
+      }, 200);
+    }
+    
+    // Only run the cleanup cycle if the accepted suggestion was not protected.
+    if (!protectedFlag) {
+      cycleSuggestionCleanup();
+    }
+    
+  } catch (err) {
+    console.error("Error generating response from suggestion:", err);
+  } finally {
+    setIsLoading(false);
+  }
+}
+  
   function handleEditMouseDown(e: React.MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
