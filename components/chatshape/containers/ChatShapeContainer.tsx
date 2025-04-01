@@ -139,17 +139,27 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     setIsLoading(true);
     let newShapeId: TLShapeId;
     try {
+      console.log("Starting sendPrompt");
       const childCount = ChatShapeContainer.layoutTree.get(shape.id) || 0;
       ChatShapeContainer.layoutTree.set(shape.id, childCount + 1);
   
-      const position = findBestPosition(editor, shape.id, 'standard');
+      console.log("Calculating position");
+      // TEMPORARY FIX: Use simple positioning instead of Dagre
+      // const position = findBestPosition(editor, shape.id, 'standard');
+      const position = {
+        x: shape.x + shape.props.w + 50,
+        y: shape.y
+      };
+      console.log("Position calculated:", position);
+  
       const userEditedAIResponse = localResponse !== shape.props.response;
       const context = userEditedAIResponse ? localResponse : undefined;
   
-      // Send the prompt as normal without interference.
+      console.log("Getting chat response");
       const { response, followUpQuestions } = await getChatResponse(localPrompt, context);
       newShapeId = makeShapeID();
-  
+      
+      console.log("Creating new shape");
       editor.createShape({
         id: newShapeId,
         type: "chat",
@@ -169,37 +179,35 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
           parentId: "",
         },
       });
-      connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
-  
-      // If follow-up questions exist, create new suggestions (generation 2).
-      if (followUpQuestions && followUpQuestions.length > 0) {
-        // Create suggestion boxes after a short delay
-        setTimeout(() => {
-          const suggestionIds = createSuggestionBoxes(newShapeId, followUpQuestions, 2);
-          
-          // Now reorganize the layout with the new suggestions
-          setTimeout(() => {
-            // Use Dagre to organize this branch including the new suggestions
-            arrangeSuggestionFan(editor, newShapeId, suggestionIds);
-          }, 100);
-        }, 500);
-      } else {
-        // Even without suggestions, reorganize this branch 
-        setTimeout(() => {
-          reorganizeBranch(editor, shape.id, [newShapeId]);
-        }, 200);
-      }
       
-      // Then run the cleanup cycle to downgrade and delete older suggestions.
-      cycleSuggestionCleanup();
+      connectShapes(editor, shape.id as TLShapeId, newShapeId as TLShapeId);
+      
+      console.log("Shape created successfully, ID:", newShapeId);
+      // Comment out the follow-up suggestions temporarily
+      // if (followUpQuestions && followUpQuestions.length > 0) {
+      //   setTimeout(() => {
+      //     const suggestionIds = createSuggestionBoxes(newShapeId, followUpQuestions, 2);
+      //     
+      //     setTimeout(() => {
+      //       arrangeSuggestionFan(editor, newShapeId, suggestionIds);
+      //     }, 100);
+      //   }, 500);
+      // } else {
+      //   setTimeout(() => {
+      //     reorganizeBranch(editor, shape.id, [newShapeId]);
+      //   }, 200);
+      // }
+      
+      // Temporarily disable cleanup
+      // cycleSuggestionCleanup();
   
     } catch (err) {
       console.error("Error generating chat response:", err);
+      alert("Error generating response. Check console for details.");
     } finally {
       setIsLoading(false);
     }
-  }
-    
+  }    
 // Update the createSuggestionBoxes function to return the created IDs:
 // Update the createSuggestionBoxes function to return the created IDs:
 function createSuggestionBoxes(
