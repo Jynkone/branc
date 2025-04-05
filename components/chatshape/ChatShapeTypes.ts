@@ -1,6 +1,5 @@
 // components/chatshape/ChatShapeTypes.ts
 import { TLBaseShape, TLDefaultColorStyle, TLDefaultDashStyle } from "tldraw"
-import { TLShapeId } from "tldraw";
 
 /**
  * Defines the ChatShape type.

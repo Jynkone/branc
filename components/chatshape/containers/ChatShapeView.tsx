@@ -14,6 +14,7 @@ type Props = {
   localResponse: string;
   promptHeight: number;
   hideResponse?: boolean;
+  isInConversation?: boolean; // Add this property
   onDividerMouseDown: (e: React.MouseEvent) => void;
   onEdit: (e: React.MouseEvent<HTMLButtonElement>) => void;
   onResponseBlur: () => void;
