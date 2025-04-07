@@ -1,7 +1,7 @@
 // chatshape/components/ChatShapeContent.tsx
 import React from "react";
 import { Button } from "../../ui/button";
-import { Pencil } from "lucide-react";
+import { Pencil } from "lucide-react"; // Remove Scissors import
 import { EditableMarkdown } from "./EditableMarkdown";
 import dynamic from 'next/dynamic';
 
@@ -17,6 +17,7 @@ export type ChatShapeContentProps = {
   onChange: (value: string) => void;
   onBlur: () => void;
   onEdit: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  // Remove onPruneHistory prop type
 };
 
 export const ChatShapeContent: React.FC<ChatShapeContentProps> = ({
@@ -26,6 +27,7 @@ export const ChatShapeContent: React.FC<ChatShapeContentProps> = ({
   onChange,
   onBlur,
   onEdit,
+  // Remove onPruneHistory from destructuring
 }) => {
   const contentStyle: React.CSSProperties = {
     width: "100%",
@@ -73,6 +75,7 @@ export const ChatShapeContent: React.FC<ChatShapeContentProps> = ({
           <Pencil className="w-4 h-4" />
         </Button>
       )}
+      {/* Prune history button removed from here */}
     </div>
   );
 };

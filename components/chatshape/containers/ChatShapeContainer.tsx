@@ -55,6 +55,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
     handleResponseBlur,
     handlePromptChange,
     handleResponseUpdate,
+    handlePruneHistory, // Destructure the new handler
   } = useHandleUserInteractions({
     editor,
     shape,
@@ -102,6 +103,7 @@ export function ChatShapeContainer({ shape, editor }: { shape: ChatShape; editor
       // Determine which send action to use based on whether it's a suggestion
       onSendPrompt={shape.props.isSuggestion ? handleSendFromSuggestion : sendPromptAction} // From useManageAiApi
       onContextSend={handleContextSend} // From useManageAiApi
+      onPruneHistory={handlePruneHistory} // Pass the handler down
     />
   );
 }

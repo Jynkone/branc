@@ -8,18 +8,16 @@ import { ChatShape } from "@/components/chatshape/ChatShapeTypes";
  */
 export function buildConversationContext(
   editor: Editor,
-  currentShapeId: TLShapeId,
-  maxDepth = 5
+  currentShapeId: TLShapeId
 ): Array<{role: string, parts: Array<{text: string}>}> {
   const conversation: Array<{role: string, parts: Array<{text: string}>}> = [];
   let currentId: TLShapeId | undefined = currentShapeId;
-  let depth = 0;
-  
+
   // Cache visited shapes to avoid loops
   const visited = new Set<string>();
-  
-  // Follow parent links until we reach a root or max depth
-  while (currentId && depth < maxDepth && !visited.has(currentId)) {
+
+  // Follow parent links until we reach a root
+  while (currentId && !visited.has(currentId)) {
     visited.add(currentId);
     const shape = editor.getShape(currentId) as ChatShape | undefined;
     
@@ -44,8 +42,7 @@ export function buildConversationContext(
     
     // Move to parent shape
     currentId = shape.props.parentId as TLShapeId | undefined;
-    depth++;
   }
-  
+
   return conversation;
 }

@@ -36,11 +36,12 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
     isSuggestion: T.boolean,
     suggestionGeneration: T.number,
     hideResponse: T.boolean,
+    protectedSuggestion: T.optional(T.boolean), // Add protectedSuggestion here
   };
 
   static override migrations = {
     firstVersion: 0,
-    currentVersion: 3,
+    currentVersion: 4, // Increment version
     migrators: {
       1: {
         up: (shape: any): any => {
@@ -77,9 +78,23 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
           return { ...shape, props };
         },
       },
+      4: { // Add migration for version 4
+        up: (shape: any): any => {
+          // Default protectedSuggestion to false if it doesn't exist
+          if (shape.props.protectedSuggestion === undefined) {
+            shape.props.protectedSuggestion = false;
+          }
+          return shape;
+        },
+        down: (shape: any): any => {
+          // Remove protectedSuggestion when downgrading
+          const { protectedSuggestion, ...props } = shape.props;
+          return { ...shape, props };
+        },
+      },
     },
   };
-  
+
   getDefaultProps(): ChatShape["props"] {
     return {
       w: CHATSHAPE_DIMENSIONS.STANDARD.width,
@@ -96,9 +111,10 @@ export class ChatShapeUtil extends BaseBoxShapeUtil<ChatShape> {
       isSuggestion: false,
       suggestionGeneration: 0,
       hideResponse: false,
+      protectedSuggestion: false, // Add default value here too
     };
   }
-  
+
   override canEdit = () => true;
   override isAspectRatioLocked = () => false;
   override canResize = () => true;

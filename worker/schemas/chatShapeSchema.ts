@@ -17,12 +17,13 @@ export const chatShapeSchema = {
     isSuggestion: { type: 'boolean', validate: (v: any) => v === undefined || typeof v === 'boolean' },
     suggestionGeneration: { type: 'number', validate: (v: any) => v === undefined || typeof v === 'number' },
     hideResponse: { type: 'boolean', validate: (v: any) => v === undefined || typeof v === 'boolean' },
+    protectedSuggestion: { type: 'boolean', validate: (v: any) => v === undefined || typeof v === 'boolean' }, // Add protectedSuggestion
     color: DefaultColorStyle,
     dash: DefaultDashStyle,
   },
   migrations: {
     firstVersion: 0,
-    currentVersion: 3,
+    currentVersion: 4, // Increment version
     migrators: {
       1: {
         up: (shape: any): any => {
@@ -59,6 +60,16 @@ export const chatShapeSchema = {
         },
         down: (shape: any): any => {
           const { parentId, isSuggestion, suggestionGeneration, hideResponse, ...props } = shape.props;
+          return { ...shape, props };
+        }
+      },
+      4: { // Add migration for version 4
+        up: (shape: any): any => {
+          if (shape.props.protectedSuggestion === undefined) shape.props.protectedSuggestion = false; // Default to false
+          return shape;
+        },
+        down: (shape: any): any => {
+          const { protectedSuggestion, ...props } = shape.props;
           return { ...shape, props };
         }
       }

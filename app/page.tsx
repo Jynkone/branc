@@ -1,4 +1,4 @@
-import { Canvas } from "@/components/Canvas";
+import { Canvas } from "@/components/canvas/Canvas"; // Updated path
 import { shouldUseAuth } from "@/lib/shouldUseAuth";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";

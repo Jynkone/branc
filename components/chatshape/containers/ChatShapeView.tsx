@@ -22,6 +22,7 @@ type Props = {
   onResponseUpdate: (value: string) => void;
   onSendPrompt: () => void;
   onContextSend: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onPruneHistory: (e: React.MouseEvent<HTMLButtonElement>) => void; // Add prop type
 };
 
 export function ChatShapeView({
@@ -39,6 +40,7 @@ export function ChatShapeView({
   onResponseUpdate,
   onSendPrompt,
   onContextSend,
+  onPruneHistory, // Destructure prop
 }: Props) {
   const theme = useDefaultColorTheme();
   const colorKey = shape.props?.color as keyof typeof theme;
@@ -151,7 +153,7 @@ export function ChatShapeView({
           if (isEditingResponse) e.stopPropagation();
         }}
       >
-        <ChatShapeHeader strokeColor={strokeColor} onContextClick={onContextSend} />
+        <ChatShapeHeader strokeColor={strokeColor} onContextClick={onContextSend} onPruneHistory={onPruneHistory} /> {/* Pass prop here */}
         {!hideResponse && (
           <div style={{ flex: 1, overflow: "auto" }}>
             <ChatShapeContent
@@ -161,6 +163,7 @@ export function ChatShapeView({
               onChange={onResponseUpdate}
               onBlur={onResponseBlur}
               onEdit={onEdit}
+              // onPruneHistory removed from here
             />
           </div>
         )}

@@ -1,4 +1,5 @@
-import React, { Dispatch, SetStateAction } from 'react';
+import React, { Dispatch, SetStateAction, useCallback } from 'react'; // Import useCallback
+import { TLShapeId } from '@tldraw/tlschema'; // Import TLShapeId
 import { ChatShape } from '../ChatShapeTypes';
 
 interface UseHandleUserInteractionsProps {
@@ -15,6 +16,7 @@ interface UseHandleUserInteractionsReturn {
   handleResponseBlur: () => void;
   handlePromptChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleResponseUpdate: (newText: string) => void; // Assuming this comes from an editor component like ToastUIEditor
+  handlePruneHistory: (e: React.MouseEvent) => void; // Add prune history handler type
 }
 
 export function useHandleUserInteractions({
@@ -83,10 +85,56 @@ export function useHandleUserInteractions({
     });
   }
 
+  // --- Handle Prune History Click ---
+  const handlePruneHistory = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const currentShapeId = shape.id;
+    const parentId = shape.props.parentId as TLShapeId | undefined;
+
+    if (!parentId) {
+      console.warn("Cannot prune history for a root shape.");
+      return;
+    }
+
+    // Find direct children of the current shape
+    // Note: tldraw doesn't have a direct getShapeIdsInParent, we need to filter all shapes.
+    const allShapes = editor.getCurrentPageShapes();
+    const childIds = allShapes
+      .filter((s: any) => s.parentId === currentShapeId)
+      .map((s: any) => s.id as TLShapeId);
+
+
+    editor.batch(() => {
+      // Reparent children to the current shape's parent (grandparent)
+      childIds.forEach((childId: TLShapeId) => {
+        // Check if shape still exists before updating (might have been deleted)
+        if (editor.getShape(childId)) {
+          editor.updateShape({
+            id: childId,
+            // type: 'chat', // Type might not be needed if just updating props
+            props: { parentId: parentId },
+          });
+        }
+      });
+
+      // Delete the current shape
+      editor.deleteShape(currentShapeId);
+
+      // Optional: Trigger layout recalculation if needed
+      // editor.dispatch(...) or call relevant layout function
+      // Example: May need to call reorganizeParentBranch from useManageAiApi context if available
+    });
+
+  }, [editor, shape.id, shape.props.parentId]);
+
+
   return {
     handleEditMouseDown,
     handleResponseBlur,
     handlePromptChange,
     handleResponseUpdate,
+    handlePruneHistory, // Add prune history handler to return object
   };
 }

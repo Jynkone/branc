@@ -21,5 +21,6 @@ export type ChatShape = TLBaseShape <
     isSuggestion?: boolean // Indicates if this is a suggestion box
     suggestionGeneration?: number // Tracks which generation this suggestion belongs to
     hideResponse?: boolean // Whether to hide the response area initially
+    protectedSuggestion?: boolean; // Add optional protectedSuggestion property
   }
 >
