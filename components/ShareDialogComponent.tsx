@@ -2,7 +2,7 @@ import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog"; // Assuming path is correct
 import { Input } from "./ui/input"; // Assuming path is correct
 import { Button } from "./ui/button"; // Assuming path is correct
-import type { useShareDialog } from '../hooks/useShareDialog'; // Adjust path as needed
+import type { useShareDialog } from './canvas/hooks/useShareDialog'; // Corrected path
 
 // Props expected by the ShareDialogComponent
 interface ShareDialogComponentProps {
