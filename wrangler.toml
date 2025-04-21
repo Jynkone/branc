@@ -2,6 +2,11 @@ name = "branc"
 main = "worker/worker.ts"
 compatibility_date = "2024-07-01"
 
+# KV namespace for storing board metadata (list of boards, names, etc.)
+kv_namespaces = [
+  { binding = "BOARD_METADATA", id = "6fd8889c70ff4978b176263187bf163b" }
+]
+
 [dev]
 port = 5172
 ip = "0.0.0.0"

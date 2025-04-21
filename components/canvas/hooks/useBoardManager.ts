@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+// Import Clerk's useAuth hook
+import { useAuth } from '@clerk/nextjs';
 
 // Type for our room data
 export interface RoomData {
@@ -7,7 +9,7 @@ export interface RoomData {
   name: string;
   isShared: boolean;
   owner: string; // User ID of the owner, or 'unknown' for boards added via link
-  createdAt: number;
+  createdAt: number; // Keep createdAt if useful, otherwise optional
 }
 
 // Function to generate user's default board ID
@@ -21,222 +23,318 @@ const generateShareableBoardId = (): string => {
   return `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
-// Create a new board object
-const createNewBoardData = (userId: string, name: string): RoomData => {
-  return {
-    id: generateShareableBoardId(),
-    name,
-    isShared: true, // New boards are shareable by default now
-    owner: userId,
-    createdAt: Date.now(),
-  };
-};
-
-const LOCAL_STORAGE_KEY_PREFIX = 'branc-known-boards-';
+// Base URL for API calls (adjust if your worker serves API under a different path)
+const API_BASE_URL = '/api'; // Assuming API routes are served from the same origin
 
 export function useBoardManager(userId: string | null) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sharedBoardId = searchParams.get('board');
+  const sharedBoardIdFromUrl = searchParams.get('board');
+  // Get Clerk's getToken function
+  const { getToken } = useAuth();
 
   const [currentRoom, setCurrentRoom] = useState<RoomData | null>(null);
   const [availableRooms, setAvailableRooms] = useState<RoomData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); // Add error state
 
-  const storageKey = userId ? `${LOCAL_STORAGE_KEY_PREFIX}${userId}` : null;
-
-  // Load rooms from localStorage on mount or when userId changes
+  // --- Fetch boards from backend ---
   useEffect(() => {
-    if (!userId || !storageKey) {
-      // If no user ID, maybe handle anonymous state or redirect?
-      // For now, just clear rooms and stop loading.
+    if (!userId) {
       setAvailableRooms([]);
       setCurrentRoom(null);
       setIsLoading(false);
+      setError(null);
       return;
     }
 
+    let isMounted = true; // Prevent state updates on unmounted component
     setIsLoading(true);
-    const storedBoardsStr = localStorage.getItem(storageKey);
-    let storedBoards: RoomData[] = [];
+    setError(null);
 
-    if (storedBoardsStr) {
+    const fetchBoards = async () => {
       try {
-        storedBoards = JSON.parse(storedBoardsStr);
-        // Basic validation (optional but good practice)
-        if (!Array.isArray(storedBoards)) {
-          console.warn("Stored boards data is not an array, resetting.");
-          storedBoards = [];
-        } else {
-          storedBoards = storedBoards.filter(board => board && typeof board.id === 'string');
+        // Get auth token before fetching
+        const token = await getToken();
+        if (!token) {
+            throw new Error('User is not authenticated.'); // Or handle appropriately
         }
-      } catch (err) {
-        console.error("Error parsing stored boards:", err);
-        // Potentially corrupted data, reset
-        storedBoards = [];
-        localStorage.removeItem(storageKey); // Clear corrupted data
+
+        const response = await fetch(`${API_BASE_URL}/boards`, {
+            headers: {
+                'Authorization': `Bearer ${token}` // Add auth header
+            }
+        }); // GET request
+
+        if (!response.ok) {
+          // Handle specific errors like 401 Unauthorized
+          if (response.status === 401) {
+             throw new Error('Unauthorized: Please log in.');
+          }
+          throw new Error(`Failed to fetch boards: ${response.status} ${response.statusText}`);
+        }
+        let fetchedBoards: RoomData[] = await response.json();
+
+        if (!isMounted) return; // Exit if component unmounted
+
+         // Ensure default board exists (create locally if backend doesn't guarantee it)
+         // Alternatively, the backend GET /api/boards could ensure this.
+         // Let's assume backend handles default board creation if needed on first fetch.
+        const defaultBoardId = getDefaultBoardId(userId);
+        let defaultBoard = fetchedBoards.find(board => board.id === defaultBoardId);
+
+        // If backend doesn't auto-create default, we might need a POST here
+        // For now, assume backend handles it or we create it on first POST if needed.
+        if (!defaultBoard) {
+             console.warn("Default board not found in fetched list. Consider backend logic or initial creation.");
+             // You might want to create it via API here if necessary
+             // Or just use a temporary local representation until one is created/selected
+             defaultBoard = { // Temporary local representation
+                 id: defaultBoardId,
+                 name: "My Board",
+                 isShared: false,
+                 owner: userId,
+                 createdAt: Date.now()
+             };
+             // Don't add to fetchedBoards directly unless backend confirms creation
+        }
+
+
+        let roomToSelect: RoomData | null = null;
+
+        // Handle board ID from URL
+        if (sharedBoardIdFromUrl) {
+          let sharedBoard = fetchedBoards.find(board => board.id === sharedBoardIdFromUrl);
+
+          if (!sharedBoard) {
+            // Board from URL not found. This case is tricky.
+            // Option 1: Assume it's a valid board and add a temporary local representation.
+            // Option 2: Try to fetch details for this specific board ID (needs another API endpoint).
+            // Option 3: Show an error or redirect.
+            console.warn(`Board ${sharedBoardIdFromUrl} from URL not found in user's list.`);
+            // For simplicity, let's add a temporary representation (like before)
+             sharedBoard = {
+               id: sharedBoardIdFromUrl,
+               name: `Shared Board`, // Placeholder
+               isShared: true,
+               owner: 'unknown',
+               createdAt: Date.now(),
+             };
+             // Don't add to fetchedBoards unless confirmed valid
+             roomToSelect = sharedBoard; // Select the temporary representation
+          } else {
+             roomToSelect = sharedBoard;
+          }
+        } else {
+          // No board in URL, select the default board
+          roomToSelect = defaultBoard;
+        }
+
+        setAvailableRooms(fetchedBoards); // Set state with boards from backend
+        setCurrentRoom(roomToSelect);
+
+      } catch (err: any) {
+        console.error("Error fetching boards:", err);
+        if (isMounted) setError(err.message || 'Failed to load boards.');
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
-    }
+    };
 
-    // Ensure default board exists
-    const defaultBoardId = getDefaultBoardId(userId);
-    let defaultBoard = storedBoards.find(board => board.id === defaultBoardId);
+    fetchBoards();
 
-    if (!defaultBoard) {
-      defaultBoard = {
-        id: defaultBoardId,
-        name: "My Board", // Default name
-        isShared: false, // Default board is private initially
-        owner: userId,
-        createdAt: Date.now(),
-      };
-      storedBoards.push(defaultBoard);
-      // Persist immediately if default board was created
-      localStorage.setItem(storageKey, JSON.stringify(storedBoards));
-    }
+    return () => { isMounted = false; }; // Cleanup function
 
-    let roomToSelect: RoomData | null = null;
+  }, [userId, sharedBoardIdFromUrl]); // Rerun when user or URL changes
 
-    // Prioritize shared board ID from URL
-    if (sharedBoardId) {
-      let sharedBoard = storedBoards.find(board => board.id === sharedBoardId);
 
-      if (!sharedBoard) {
-        // Board from URL not found locally, add it
-        // We need a way to potentially fetch the name if possible,
-        // but for now, use a placeholder.
-        sharedBoard = {
-          id: sharedBoardId,
-          name: `Shared Board`, // Placeholder name
-          isShared: true,
-          owner: 'unknown', // We don't know the owner yet
-          createdAt: Date.now(), // Use current time as creation time locally
-        };
-        storedBoards.push(sharedBoard);
-        localStorage.setItem(storageKey, JSON.stringify(storedBoards));
-      }
-      roomToSelect = sharedBoard;
-    } else {
-      // No shared board in URL, use the default board
-      roomToSelect = defaultBoard;
-    }
-
-    setAvailableRooms(storedBoards);
-    setCurrentRoom(roomToSelect);
-    setIsLoading(false);
-    console.log("Board manager initialized. Current room:", roomToSelect?.id);
-
-  }, [userId, sharedBoardId, storageKey]); // Rerun when user or URL changes
-
-  // Function to persist rooms to localStorage
-  const persistRooms = useCallback((rooms: RoomData[]) => {
-    if (storageKey) {
-      localStorage.setItem(storageKey, JSON.stringify(rooms));
-    }
-  }, [storageKey]);
-
-  // Select a board
+  // --- Select Board (mostly unchanged, URL logic might need review) ---
   const selectBoard = useCallback((boardId: string) => {
-    const selectedRoom = availableRooms.find(room => room.id === boardId);
+    // Find in the current state (which should be synced from backend)
+    // Include currentRoom in search in case it was temporary (e.g., loaded from URL but not yet in fetched list)
+    const selectedRoom = [...availableRooms, currentRoom].filter(Boolean).find(room => room && room.id === boardId);
     if (selectedRoom) {
       setCurrentRoom(selectedRoom);
-      // Update URL
-      if (selectedRoom.isShared && selectedRoom.id !== getDefaultBoardId(userId!)) {
+      // Update URL - logic remains similar
+      // Ensure userId exists before calling getDefaultBoardId
+      if (userId && selectedRoom.isShared && selectedRoom.id !== getDefaultBoardId(userId)) {
         router.push(`/?board=${selectedRoom.id}`, { scroll: false });
       } else {
-        // If it's the default board or not shared, go to the root URL
         router.push('/', { scroll: false });
       }
       console.log("Selected board:", selectedRoom.id);
     } else {
-      console.warn("Attempted to select non-existent board:", boardId);
+      console.warn("Attempted to select non-existent or non-fetched board:", boardId);
+      // Maybe fetch the board details if not found? Or show error.
     }
-  }, [availableRooms, router, userId]);
+  }, [availableRooms, currentRoom, router, userId]); // Add currentRoom dependency
 
-  // Create a new board
-  const createNewBoard = useCallback(() => {
-    if (!userId) return;
+  // --- Create New Board ---
+  const createNewBoard = useCallback(async () => {
+    if (!userId) return null; // Return null or throw error
 
-    const boardNumber = availableRooms.filter(b => b.owner === userId).length + 1; // Count only user's boards for naming
-    const newBoard = createNewBoardData(userId, `Page ${boardNumber}`);
+    // Suggest a name, but let backend handle actual creation
+    const boardNumber = availableRooms.filter(b => b.owner === userId).length + 1;
+    const suggestedName = `Page ${boardNumber}`;
 
-    const updatedRooms = [...availableRooms, newBoard];
-    setAvailableRooms(updatedRooms);
-    persistRooms(updatedRooms);
-    setCurrentRoom(newBoard); // Select the new board
+    setIsLoading(true); // Indicate activity
+    setError(null);
 
-    // Update URL for the new shared board
-    router.push(`/?board=${newBoard.id}`, { scroll: false });
-    console.log("Created new board:", newBoard.id);
-    return newBoard; // Return the created board object
-  }, [userId, availableRooms, persistRooms, router]);
-
-  // Rename a board
-  const renameBoard = useCallback((boardId: string, newName: string) => {
-    if (!newName.trim()) return; // Ignore empty names
-
-    let updatedRoom: RoomData | null = null;
-    const updatedRooms = availableRooms.map(room => {
-      if (room.id === boardId) {
-        updatedRoom = { ...room, name: newName.trim() };
-        return updatedRoom;
-      }
-      return room;
-    });
-
-    if (updatedRoom) {
-      setAvailableRooms(updatedRooms);
-      persistRooms(updatedRooms);
-      // If the renamed board is the current one, update the currentRoom state
-      if (currentRoom?.id === boardId) {
-        setCurrentRoom(updatedRoom);
-      }
-      console.log("Renamed board:", boardId, "to", newName.trim());
-    }
-  }, [availableRooms, currentRoom, persistRooms]);
-
-  // Make a board shareable (if it wasn't already)
-  const ensureBoardIsShareable = useCallback((boardId: string): string | null => {
-    let boardLink: string | null = null;
-    let needsUpdate = false;
-    let updatedRoomData: RoomData | null = null;
-
-    const updatedRooms = availableRooms.map(room => {
-      if (room.id === boardId) {
-        boardLink = `${window.location.origin}/?board=${room.id}`;
-        if (!room.isShared) {
-          needsUpdate = true;
-          updatedRoomData = { ...room, isShared: true };
-          return updatedRoomData;
-        } else {
-          updatedRoomData = room; // Keep track even if no change
+    try {
+      // Get auth token before creating
+      const token = await getToken();
+       if (!token) {
+            throw new Error('User is not authenticated.');
         }
-      }
-      return room;
-    });
 
-    if (needsUpdate && updatedRoomData) {
-      setAvailableRooms(updatedRooms);
-      persistRooms(updatedRooms);
-      // Update current room state if it was the one modified
-      if (currentRoom?.id === boardId) {
-        setCurrentRoom(updatedRoomData);
+      const response = await fetch(`${API_BASE_URL}/boards`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` // Add auth header
+        },
+        body: JSON.stringify({ name: suggestedName }),
+      });
+
+      if (!response.ok) {
+        // Handle specific errors like 401 Unauthorized
+        if (response.status === 401) {
+           throw new Error('Unauthorized: Could not create board.');
+        }
+        throw new Error(`Failed to create board: ${response.status} ${response.statusText}`);
       }
-      console.log("Made board shareable:", boardId);
+
+      const newBoard: RoomData = await response.json();
+
+      // Update local state
+      setAvailableRooms(prevRooms => [...prevRooms, newBoard]);
+      setCurrentRoom(newBoard); // Select the new board
+
+      // Update URL
+      router.push(`/?board=${newBoard.id}`, { scroll: false });
+      console.log("Created new board via API:", newBoard.id);
+      setIsLoading(false);
+      return newBoard; // Return the created board
+
+    } catch (err: any) {
+      console.error("Error creating board:", err);
+      setError(err.message || 'Failed to create board.');
+      setIsLoading(false);
+      return null; // Indicate failure
+    }
+  }, [userId, availableRooms, router]); // Removed persistRooms
+
+  // --- Rename Board ---
+  const renameBoard = useCallback(async (boardId: string, newName: string) => {
+    if (!userId || !newName.trim()) return;
+
+    const trimmedName = newName.trim();
+    // Find the original room from the current state for potential rollback
+    const originalRoom = availableRooms.find(r => r.id === boardId);
+    if (!originalRoom) {
+        console.error("Cannot rename: board not found locally", boardId);
+        setError("Cannot rename: board not found locally."); // Inform user
+        return;
+    }
+    const originalName = originalRoom.name; // Store original name for rollback
+
+    // Optimistic UI update (optional but good UX)
+    const optimisticRooms = availableRooms.map(room =>
+        room.id === boardId ? { ...room, name: trimmedName } : room
+    );
+    setAvailableRooms(optimisticRooms);
+    if (currentRoom?.id === boardId) {
+        setCurrentRoom(prev => prev ? { ...prev, name: trimmedName } : null);
     }
 
-    return boardLink;
-  }, [availableRooms, currentRoom, persistRooms]);
+    setError(null); // Clear previous errors
+
+    try {
+      // Get auth token before renaming
+      const token = await getToken();
+       if (!token) {
+            throw new Error('User is not authenticated.');
+        }
+
+      const response = await fetch(`${API_BASE_URL}/boards/${boardId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` // Add auth header
+        },
+        body: JSON.stringify({ name: trimmedName }),
+      });
+
+      if (!response.ok) {
+         // Revert optimistic update on failure
+         setAvailableRooms(availableRooms.map(r => r.id === boardId ? originalRoom : r)); // Use originalRoom object
+         if (currentRoom?.id === boardId) {
+             setCurrentRoom(originalRoom);
+         }
+         // Handle specific errors
+         if (response.status === 401) throw new Error('Unauthorized: Could not rename board.');
+         if (response.status === 403) throw new Error('Forbidden: You do not own this board.');
+         if (response.status === 404) throw new Error('Board not found on server.');
+
+        throw new Error(`Failed to rename board: ${response.status} ${response.statusText}`);
+      }
+
+      const updatedBoardFromServer: RoomData = await response.json();
+
+      // Update state with confirmed data from server (ensure consistency)
+      setAvailableRooms(prevRooms => prevRooms.map(room =>
+        room.id === boardId ? updatedBoardFromServer : room
+      ));
+       if (currentRoom?.id === boardId) {
+           setCurrentRoom(updatedBoardFromServer);
+       }
+
+      console.log("Renamed board via API:", boardId, "to", trimmedName);
+
+    } catch (err: any) {
+      console.error("Error renaming board:", err);
+      setError(err.message || 'Failed to rename board.');
+       // Ensure rollback happens on any catch
+       setAvailableRooms(availableRooms.map(r => r.id === boardId ? originalRoom : r));
+       if (currentRoom?.id === boardId) {
+           setCurrentRoom(originalRoom);
+       }
+    }
+  }, [userId, availableRooms, currentRoom, router]); // Added router dependency for potential future use
+
+  // --- Ensure Board Shareable (no backend call needed based on current logic) ---
+  // This function primarily updates the URL and potentially a local flag.
+  // The backend POST already creates boards as shareable.
+  // If you needed to *change* share status via API, this would need modification.
+  const ensureBoardIsShareable = useCallback((boardId: string): string | null => {
+     // Find board in the current state
+     const room = availableRooms.find(r => r.id === boardId);
+     if (!room) return null;
+
+     // The concept of "isShared" might now just mean "has a shareable link format"
+     // since all boards created via POST are shareable.
+     // If the board ID follows the shareable pattern, generate the link.
+     // Also check if it's the default board ID.
+     if (room.id.startsWith('shared-board-') || (userId && room.id === getDefaultBoardId(userId))) {
+         // Allow generating link for default board as well, assuming it's accessible
+         return `${window.location.origin}/?board=${room.id}`;
+     }
+     // If it's an older format or unexpected ID, don't generate a link
+     console.warn("Board ID format not recognized as shareable:", boardId);
+     return null;
+
+  }, [availableRooms, userId]); // Added userId dependency
 
 
   return {
     isLoading,
+    error, // Expose error state
     currentRoom,
     availableRooms,
     selectBoard,
     createNewBoard,
     renameBoard,
     ensureBoardIsShareable,
-    getDefaultBoardId: userId ? () => getDefaultBoardId(userId) : () => '', // Expose default board ID generator
+    getDefaultBoardId: userId ? () => getDefaultBoardId(userId) : () => '',
   };
 }

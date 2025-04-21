@@ -4,7 +4,7 @@ import { GEMINI_MODEL } from "@/ai/models";
 import { createClient } from "@/ai/client";
 import { systemPrompt } from "@/ai/prompt";
 import { getAuth } from "@clerk/nextjs/server";
-import { shouldUseAuth } from "@/lib/shouldUseAuth";
+// Removed unused import: import { shouldUseAuth } from "@/lib/shouldUseAuth";
 
 // Helper function to extract follow-up questions from response
 function extractFollowUpQuestions(text: string): { mainResponse: string, followUpQuestions: string[] } {
@@ -30,15 +30,16 @@ function extractFollowUpQuestions(text: string): { mainResponse: string, followU
 // Update the POST handler in app/api/chat/route.ts
 export async function POST(req: NextRequest) {
   try {
-    // Conditional authentication based on shouldUseAuth
-    let userId = "anonymous-user";
-    if (shouldUseAuth) {
-      const auth = getAuth(req);
-      if (!auth.userId) {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-      }
-      userId = auth.userId;
+    // Enforce authentication unconditionally
+    const auth = getAuth(req);
+    if (!auth.userId) {
+      // Always return error if not authenticated
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+    const userId = auth.userId; // Use the authenticated user ID
+
+    // Note: The shouldUseAuth import is no longer needed unless used elsewhere
+    // import { shouldUseAuth } from "@/lib/shouldUseAuth"; // Can likely be removed
 
     const { prompt, history, context } = await req.json();
     if (!prompt || prompt.trim() === "") {

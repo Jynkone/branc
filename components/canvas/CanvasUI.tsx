@@ -34,7 +34,7 @@ interface CanvasUIProps {
   editor: Editor | null; // Receive editor instance
   onEditorMount: (editor: Editor) => void; // Receive mount callback
   tldrawContainerRef: RefObject<HTMLDivElement>;
-  selectorPosition: number;
+  selectorPosition: number; // Reverted back to number type
   boardManager: ReturnType<typeof useBoardManager>;
   pageSelectorHook: ReturnType<typeof usePageSelector>;
   shareDialogHook: ReturnType<typeof useShareDialog>;
@@ -192,7 +192,7 @@ export function CanvasUI({
           className="tldraw-page-selector-container"
           style={{
             position: "absolute",
-            left: `${selectorPosition}px`,
+            left: `${selectorPosition}px`, // Use number directly
             top: "0px", // Adjust top position if needed based on tldraw UI
             zIndex: 3000 // Ensure it's above tldraw UI elements
           }}

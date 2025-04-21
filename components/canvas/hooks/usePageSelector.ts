@@ -5,7 +5,8 @@ interface UsePageSelectorProps {
   currentRoom: RoomData | null;
   availableRooms: RoomData[];
   selectBoard: (boardId: string) => void;
-  createNewBoard: () => RoomData | undefined; // Updated return type based on useBoardManager
+  // Update createNewBoard to accept the async signature from useBoardManager
+  createNewBoard: () => Promise<RoomData | null>;
   renameBoard: (boardId: string, newName: string) => void;
 }
 
@@ -99,10 +100,18 @@ export function usePageSelector({
   }, []);
 
 
-  // Handler to create a new board
-  const handleNewBoard = useCallback(() => {
-    createNewBoard(); // This now selects the board and updates URL via useBoardManager
-    setIsMenuOpen(false); // Close menu after creating
+  // Handler to create a new board - make it async
+  const handleNewBoard = useCallback(async () => {
+    try {
+      // Await the async function from useBoardManager
+      await createNewBoard();
+      // No need to manually select or update URL here, useBoardManager handles it
+      setIsMenuOpen(false); // Close menu after creating
+    } catch (error) {
+      // Handle or log error if createNewBoard throws (though it currently catches internally)
+      console.error("Error creating new board from PageSelector:", error);
+      // Optionally, show an error message to the user
+    }
   }, [createNewBoard]);
 
   // Handler to select a board from the list
