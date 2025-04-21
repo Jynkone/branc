@@ -206,6 +206,9 @@ function SyncedCanvasContent({
   // useSync is now called only when currentRoom is guaranteed to be valid
   const webSocketUri = getWebSocketUrl(WORKER_URL, currentRoom.id);
 
+  // Add this log:
+  console.log('Attempting to connect WebSocket with URI:', webSocketUri);
+
   // Ensure we have a valid websocket URI before initializing useSync
   if (!webSocketUri) {
      // Handle the case where WORKER_URL might be invalid or missing, even if currentRoom exists
