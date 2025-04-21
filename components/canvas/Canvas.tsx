@@ -137,20 +137,36 @@ export function Canvas({ userId }: { userId: string }) {
     return [ChatShapeUtil, ...defaultShapeUtils] as any;
   }, []);
 
-  // --- Loading State ---
-  // Render loading indicator *before* calling useSync if data isn't ready
+  // Calculate WebSocket URI only when dependencies are ready
+  const webSocketUri = useMemo(() => {
+    // Ensure not loading and currentRoom exists before calculating
+    if (isLoading || !currentRoom) {
+      return undefined;
+    }
+    return getWebSocketUrl(WORKER_URL, currentRoom.id);
+  }, [isLoading, currentRoom]); // Dependencies: isLoading, currentRoom
+
+  // --- Loading State & URI Validation ---
+  // Show loading if boardManager is loading OR if we have a room but couldn't generate a valid URI
   if (isLoading || !currentRoom) {
     return <div className="flex items-center justify-center h-screen">Loading Canvas...</div>;
   }
 
+  // If loading is done but URI is still invalid (e.g., bad WORKER_URL), show an error
+  if (!webSocketUri) {
+    console.error("Canvas: Cannot render SyncedCanvasContent because webSocketUri is invalid.", { WORKER_URL, currentRoomId: currentRoom?.id });
+    return <div className="flex items-center justify-center h-screen">Error: Invalid sync configuration.</div>;
+  }
+
   // --- Render Synced Content ---
-  // Only render the component that uses useSync once we have a valid currentRoom
+  // Only render the component that uses useSync once we have a valid currentRoom AND a valid webSocketUri
   return (
     <SyncedCanvasContent
       userId={userId}
-      currentRoom={currentRoom} // Pass the validated currentRoom
+      webSocketUri={webSocketUri} // Pass the validated URI string
       customShapeUtils={customShapeUtils}
       // Pass down other necessary props/hooks
+      // Note: No need to pass currentRoom if SyncedCanvasContent doesn't need it directly
       boardManager={boardManager}
       pageSelectorHook={pageSelectorHook}
       shareDialogHook={shareDialogHook}
@@ -170,9 +186,9 @@ export function Canvas({ userId }: { userId: string }) {
 // Define the inner component that uses useSync
 interface SyncedCanvasContentProps {
   userId: string;
-  currentRoom: RoomData; // Non-null assertion here, as it's checked before rendering
+  webSocketUri: string; // Expect a validated string URI
   customShapeUtils: any[]; // Adjust type if needed
-  boardManager: ReturnType<typeof useBoardManager>;
+  boardManager: ReturnType<typeof useBoardManager>; // Pass boardManager for CanvasUI
   pageSelectorHook: ReturnType<typeof usePageSelector>;
   shareDialogHook: ReturnType<typeof useShareDialog>;
   tldrawContainerRef: React.RefObject<HTMLDivElement>;
@@ -188,7 +204,7 @@ interface SyncedCanvasContentProps {
 
 function SyncedCanvasContent({
   userId,
-  currentRoom,
+  webSocketUri, // Receive the validated URI
   customShapeUtils,
   boardManager,
   pageSelectorHook,
@@ -203,23 +219,9 @@ function SyncedCanvasContent({
   assetUrls,
 }: SyncedCanvasContentProps) {
 
-  // useSync is now called only when currentRoom is guaranteed to be valid
-  const webSocketUri = getWebSocketUrl(WORKER_URL, currentRoom.id);
-
-  // Add this log:
-  console.log('Attempting to connect WebSocket with URI:', webSocketUri);
-
-  // Ensure we have a valid websocket URI before initializing useSync
-  if (!webSocketUri) {
-     // Handle the case where WORKER_URL might be invalid or missing, even if currentRoom exists
-     console.error("Cannot initialize sync: Invalid WebSocket URI derived from WORKER_URL.");
-     // Render an error state or return null, preventing useSync call with invalid URI
-     return <div>Error: Cannot connect to sync service. Invalid configuration.</div>;
-     // Or return null; depending on desired behavior
-  }
-
+  // useSync is now called only when webSocketUri is guaranteed to be a valid string
   const store = useSync({
-    uri: webSocketUri, // Pass the validated string URI directly
+    uri: webSocketUri, // Use the validated URI prop directly
     assets: multiplayerAssetStore,
     shapeUtils: customShapeUtils,
   });
