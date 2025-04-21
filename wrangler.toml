@@ -11,10 +11,16 @@ kv_namespaces = [
 port = 5172
 ip = "0.0.0.0"
 
+# Enable specific compatibility flags for WebSockets
+compatibility_flags = [
+  "nodejs_compat",
+  "streams_enable_constructors"
+]
+
 # Set up the durable object used for each tldraw room
 [durable_objects]
 bindings = [
-    { name = "TLDRAW_DURABLE_OBJECT", class_name = "TldrawDurableObject" },
+  { name = "TLDRAW_DURABLE_OBJECT", class_name = "TldrawDurableObject" },
 ]
 
 # Durable objects require migrations to create/modify/delete them
@@ -27,3 +33,9 @@ new_classes = ["TldrawDurableObject"]
 binding = 'TLDRAW_BUCKET'
 bucket_name = 'branc-tldraw-content'
 preview_bucket_name = 'branc-tldraw-content-preview'
+
+# Explicit build configuration to ensure proper module format
+[build]
+command = ""
+[build.upload]
+format = "modules"

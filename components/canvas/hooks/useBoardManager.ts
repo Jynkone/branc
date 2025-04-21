@@ -15,7 +15,9 @@ export interface RoomData {
 // Function to generate user's default board ID
 // This is deterministic - will always create the same ID for the same user
 const getDefaultBoardId = (userId: string): string => {
-  return `user-${userId}-default-board`;
+  // Remove any existing user prefixes to prevent duplication
+  const cleanUserId = userId.replace(/^user[_-]+/, "");
+  return `user-${cleanUserId}-default-board`;
 };
 
 // Generate a shareable board ID that can be accessed by anyone with the link
