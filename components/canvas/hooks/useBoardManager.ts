@@ -1,5 +1,5 @@
 // File: Jynkone/branc/branc-35acf07df2bc3fdbf1d7d97ee2c139d0fcf9291a/components/canvas/hooks/useBoardManager.ts
-import { useState, useEffect, useCallback, useMemo } from 'react'; // Added useMemo
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 
@@ -16,50 +16,73 @@ const getDefaultBoardId = (userId: string): string => {
   return `user-${cleanUserId}-default-board`;
 };
 
-// No need for generateShareableBoardId here as worker handles it
-
 export function useBoardManager(userId: string | null) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // `sharedBoardIdFromUrl` needs to be defined at the hook's top level to be accessible throughout
   const sharedBoardIdFromUrl = searchParams.get('board');
   const { getToken, isLoaded, isSignedIn } = useAuth();
 
   const [currentRoom, setCurrentRoom] = useState<RoomData | null>(null);
   const [availableRooms, setAvailableRooms] = useState<RoomData[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Start true
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isCreatingDefaultBoard, setIsCreatingDefaultBoard] = useState(false); // New state
+  
+  // State to track if the initial board processing/creation has been done for this session/user load
+  const initialBoardProcessedRef = useRef(false);
+  // State to track if currently in the process of creating a default board to avoid race conditions
+  const isAutoCreatingBoardRef = useRef(false);
+
 
   const BOARDS_API_BASE_URL = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787";
+    const url = process.env.NEXT_PUBLIC_WORKER_URL;
     if (!url) {
-      console.error("[useBoardManager] CRITICAL: NEXT_PUBLIC_WORKER_URL is not set!");
-      return "http://localhost:8787"; // Should be configured for prod
+      console.error("[useBoardManager] CRITICAL: NEXT_PUBLIC_WORKER_URL is not set! Defaulting to localhost for dev.");
+      return "http://localhost:8787";
     }
     return url.startsWith("http") ? url : `https://${url}`;
   }, []);
 
-  // Define createNewBoard before the main useEffect so it can be called
+  // Stable selectBoard function - its main job is to set currentRoom and navigate
+  const selectBoard = useCallback((boardId: string) => {
+    // availableRooms will be read from state at the time this function is *called*
+    // or, if called from within the effect that sets it, we need to ensure it has the latest.
+    // For robustness, let's assume availableRooms state is the source of truth when this is called externally.
+    const roomToSelect = availableRooms.find((room: RoomData) => room.id === boardId);
+
+    if (roomToSelect) {
+      console.log(`[useBoardManager] selectBoard: Selecting board ID="${roomToSelect.id}", Name="${roomToSelect.name}"`);
+      setCurrentRoom(roomToSelect);
+      const actualUserIdForDefaults = userId || "anonymous-user";
+      const newPath = (roomToSelect.isShared && roomToSelect.id !== getDefaultBoardId(actualUserIdForDefaults))
+                       ? `/?board=${roomToSelect.id}`
+                       : '/';
+      if (typeof window !== "undefined" && (window.location.pathname + window.location.search !== newPath)) {
+        router.push(newPath, { scroll: false });
+      }
+    } else {
+      console.warn(`[useBoardManager] selectBoard: Board ID "${boardId}" not found in current availableRooms. Available:`, availableRooms.map((r: RoomData) => r.id));
+      // If a board is not found (e.g., after deletion or error), clear currentRoom
+      // setCurrentRoom(null); // This might cause issues if it's a timing problem
+      // router.push('/', { scroll: false }); // Navigate to base if board is invalid
+    }
+  }, [availableRooms, router, userId]); // `availableRooms` is a valid dependency here
+
   const createNewBoard = useCallback(async (isDefaultBoardCreation = false) => {
     const effectiveUserId = (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && userId) ? userId : "anonymous-user";
     if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && !isSignedIn) {
-        setError("Cannot create board: User not signed in.");
-        console.warn("[useBoardManager] createNewBoard: Auth required, but user not signed in.");
-        return null;
+        setError("Cannot create board: User not signed in."); return null;
     }
     if (!effectiveUserId) {
-        setError("Cannot create board: User ID is missing.");
-        console.warn("[useBoardManager] createNewBoard: User ID is missing.");
-        return null;
+        setError("Cannot create board: User ID is missing."); return null;
     }
 
-    // Use a more generic default name, or a specific one for the auto-created default
-    const boardName = isDefaultBoardCreation ? "My First Board" : `Page ${availableRooms.filter(b => b.owner === effectiveUserId).length + 1}`;
+    // Read availableRooms from state for naming to get the most current count
+    const boardName = isDefaultBoardCreation ? "My First Board" : `Page ${availableRooms.filter((b: RoomData) => b.owner === effectiveUserId).length + 1}`;
 
-    console.log(`[useBoardManager] Attempting to create new board with name: "${boardName}" for user: ${effectiveUserId}`);
-    if (isDefaultBoardCreation) setIsCreatingDefaultBoard(true);
-    else setIsLoading(true); // General loading for user-initiated creation
-    setError(null);
+    console.log(`[useBoardManager] createNewBoard: Attempting to create new board: "${boardName}" for user: ${effectiveUserId}`);
+    if (isDefaultBoardCreation) isAutoCreatingBoardRef.current = true;
+    setIsLoading(true); setError(null);
 
     try {
       let token: string | null = null;
@@ -75,242 +98,211 @@ export function useBoardManager(userId: string | null) {
       if (!response.ok) {
         const errorBodyText = await response.text();
         let errorDetail = errorBodyText; try { const errorJson = JSON.parse(errorBodyText); errorDetail = errorJson.error || errorJson.message || errorBodyText; } catch (e) {}
-        console.error("[useBoardManager] Failed to create board response:", response.status, errorBodyText);
         throw new Error(`Failed to create board: ${response.status} - ${errorDetail}`);
       }
       const newBoard: RoomData = await response.json();
-      console.log("[useBoardManager] Successfully created board via API:", newBoard);
-
+      console.log("[useBoardManager] createNewBoard: Successfully created board via API:", newBoard);
+      
+      // Update availableRooms state immediately
       setAvailableRooms(prevRooms => [...prevRooms, newBoard]);
-      // Select the new board (this will also update currentRoom and URL via selectBoard's logic)
-      // Ensure selectBoard is defined when createNewBoard is called
-      // We will call selectBoard from the effect after this promise resolves.
       return newBoard;
     } catch (err: any) {
-      console.error("[useBoardManager] Error creating board:", err);
+      console.error("[useBoardManager] createNewBoard: Error creating board:", err);
       setError(err.message || 'Failed to create board.');
       return null;
     } finally {
-      if (isDefaultBoardCreation) setIsCreatingDefaultBoard(false);
-      else setIsLoading(false);
+      if (isDefaultBoardCreation) isAutoCreatingBoardRef.current = false;
+      // setIsLoading(false); // Let the main effect handle overall loading state
     }
-  }, [userId, availableRooms, getToken, BOARDS_API_BASE_URL, isSignedIn]); // Removed selectBoard from here
-
-
-  const selectBoard = useCallback((boardId: string) => {
-    const selectedRoom = availableRooms.find(room => room && room.id === boardId);
-    if (selectedRoom) {
-      console.log("[useBoardManager] Selecting board:", selectedRoom.id, "Name:", selectedRoom.name);
-      setCurrentRoom(selectedRoom);
-      const actualUserIdForDefaults = userId || "anonymous-user";
-      const newPath = (selectedRoom.isShared && selectedRoom.id !== getDefaultBoardId(actualUserIdForDefaults))
-                       ? `/?board=${selectedRoom.id}`
-                       : '/';
-      if (typeof window !== "undefined" && (window.location.pathname + window.location.search !== newPath)) {
-        router.push(newPath, { scroll: false });
-      }
-    } else {
-      console.warn("[useBoardManager] Attempted to select non-existent or non-available board:", boardId, "Available rooms:", availableRooms.map(r=>r.id));
-      // If boardId is not in availableRooms, it could be a new board just created, or invalid.
-      // If it was just created, the availableRooms state might not have updated yet for this call.
-      // Consider re-fetching or ensuring state update before select.
-      // For now, setCurrentRoom(null) if board not found to avoid inconsistent state.
-      // setCurrentRoom(null);
-      // router.push('/', { scroll: false });
-    }
-  }, [availableRooms, router, userId]);
+  }, [userId, getToken, BOARDS_API_BASE_URL, isSignedIn, availableRooms]); // `availableRooms` for naming
 
 
   useEffect(() => {
-    console.log(`[useBoardManager] Main effect. userId: ${userId}, isLoaded: ${isLoaded}, isSignedIn: ${isSignedIn}, URL boardId: ${sharedBoardIdFromUrl}`);
+    console.log(`[useBoardManager] Main effect. userId: ${userId}, Clerk Loaded: ${isLoaded}, SignedIn: ${isSignedIn}, URL boardId: ${sharedBoardIdFromUrl}, InitialProcessed: ${initialBoardProcessedRef.current}`);
 
-    if (!isLoaded) {
-      console.log("[useBoardManager] Clerk not loaded. Waiting...");
-      setIsLoading(true); return;
-    }
-    if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && !isSignedIn) {
-      console.log("[useBoardManager] Auth required, user not signed in.");
-      setAvailableRooms([]); setCurrentRoom(null); setError("User not authenticated."); setIsLoading(false); return;
-    }
-    if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && isSignedIn && !userId) {
-      console.warn("[useBoardManager] Clerk signed in, but userId prop is null. Waiting.");
-      setIsLoading(true); return;
-    }
+    if (!isLoaded) { console.log("[useBoardManager] Clerk not yet loaded."); return; }
 
-    const effectiveUserIdForApi = process.env.NEXT_PUBLIC_USE_AUTH === 'true' ? userId : "anonymous-user";
-    if (!effectiveUserIdForApi && process.env.NEXT_PUBLIC_USE_AUTH === 'true') {
-        console.error("[useBoardManager] Auth required, but no effective user ID for API call.");
-        setError("Authentication error: User ID missing."); setIsLoading(false); return;
+    if (initialBoardProcessedRef.current && !sharedBoardIdFromUrl) {
+        // If we've already processed initial boards and there's no NEW sharedBoardId in the URL to handle,
+        // and we already have a currentRoom, we can often skip re-processing.
+        // However, if userId changes, we MUST reprocess.
+        // The dependency array handles userId changes.
+        // console.log("[useBoardManager] Initial processing done, no new shared board in URL.");
+        // If currentRoom is already set, no need to set isLoading to true again.
+        if (currentRoom) setIsLoading(false);
+        return;
+    }
+    
+    if (process.env.NEXT_PUBLIC_USE_AUTH === 'true') {
+        if (!isSignedIn) {
+            console.log("[useBoardManager] Auth required, user not signed in. Clearing state.");
+            setAvailableRooms([]); setCurrentRoom(null); setError("User not authenticated."); setIsLoading(false);
+            initialBoardProcessedRef.current = true; // Mark as processed to prevent loop on auth pages
+            return;
+        }
+        if (!userId) {
+            console.warn("[useBoardManager] Auth required, Clerk signed in, but userId prop is null. Waiting.");
+            setIsLoading(true); // Wait for userId prop
+            return;
+        }
     }
 
     let isMounted = true;
     setIsLoading(true); setError(null);
 
-    const fetchAndProcessBoards = async () => {
+    const fetchAndInitializeBoards = async () => {
+      console.log("[useBoardManager] fetchAndInitializeBoards: Starting.");
       try {
         let token: string | null = null;
-        if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && isSignedIn && userId) {
+        if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && isSignedIn && userId) { // Check userId here too
             token = await getToken();
-            console.log("[useBoardManager] Token for fetchBoards:", token ? "Retrieved" : "Not retrieved");
-            if (!token) throw new Error('Auth token could not be retrieved.');
+            if (!token) throw new Error('Authentication token could not be retrieved.');
         }
         const headers: HeadersInit = {}; if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        console.log(`[useBoardManager] Fetching boards from: ${BOARDS_API_BASE_URL}/api/boards. Auth: ${token ? 'Yes' : 'No'}`);
-        const response = await fetch(`${BOARDS_API_BASE_URL}/api/boards`, { headers });
+        const fetchUrl = `${BOARDS_API_BASE_URL}/api/boards`;
+        console.log(`[useBoardManager] fetchAndInitializeBoards: Fetching from ${fetchUrl}. Auth: ${token ? 'Yes' : 'No'}`);
+        const response = await fetch(fetchUrl, { headers });
 
-        if (!response.ok) { /* ... error handling as before ... */ 
-            const errorBodyText = await response.text();
-            let errorDetail = errorBodyText; try { const errorJson = JSON.parse(errorBodyText); errorDetail = errorJson.error || errorJson.message || errorBodyText; } catch (e) {}
-            console.error(`[useBoardManager] Failed to fetch boards. Status: ${response.status}. Body: ${errorBodyText}`);
-            throw new Error(`Failed to fetch boards: ${response.status} - ${errorDetail}`);
-        }
-        let fetchedBoards: RoomData[] = await response.json();
+        if (!response.ok) { throw new Error(`Failed to fetch boards: ${response.status}`); }
+        
+        const fetchedBoards: RoomData[] = await response.json();
         if (!isMounted) return;
-        console.log("[useBoardManager] Fetched boards:", fetchedBoards.map(b => ({id: b.id, name: b.name})));
-        setAvailableRooms(fetchedBoards);
+        console.log("[useBoardManager] fetchAndInitializeBoards: Fetched boards count:", fetchedBoards.length);
+        setAvailableRooms(fetchedBoards); // Set available rooms first
 
         const actualUserIdForDefaults = userId || "anonymous-user";
         const defaultBoardId = getDefaultBoardId(actualUserIdForDefaults);
         let boardToSelect: RoomData | null = null;
 
-        if (sharedBoardIdFromUrl) {
-          boardToSelect = fetchedBoards.find(b => b.id === sharedBoardIdFromUrl) || null;
-          if (!boardToSelect) console.warn(`[useBoardManager] Shared board ${sharedBoardIdFromUrl} not found in fetched list.`);
+        const currentUrlBoardId = searchParams.get('board'); // Re-get in case it changed
+
+        if (currentUrlBoardId) {
+          boardToSelect = fetchedBoards.find((b: RoomData) => b.id === currentUrlBoardId) || null;
+          if (boardToSelect) console.log(`[useBoardManager] fetchAndInitializeBoards: Found board from URL: ${currentUrlBoardId}`);
+          else console.warn(`[useBoardManager] fetchAndInitializeBoards: Board from URL ${currentUrlBoardId} not in fetched list.`);
         }
         
-        if (!boardToSelect) { // If no shared board in URL or not found
-            boardToSelect = fetchedBoards.find(b => b.id === defaultBoardId) || null;
-            if (!boardToSelect && fetchedBoards.length > 0) {
-                boardToSelect = fetchedBoards[0]; // Fallback to first board if default not found
-                console.log("[useBoardManager] Default board not found, falling back to first available board:", boardToSelect.id);
+        if (!boardToSelect) {
+            boardToSelect = fetchedBoards.find((b: RoomData) => b.id === defaultBoardId) || null;
+            if (boardToSelect) console.log(`[useBoardManager] fetchAndInitializeBoards: Found default board: ${defaultBoardId}`);
+            else if (fetchedBoards.length > 0) {
+                boardToSelect = fetchedBoards[0];
+                console.log(`[useBoardManager] fetchAndInitializeBoards: Default not found, selected first available: ${boardToSelect.id}`);
             }
         }
 
         if (boardToSelect) {
-          console.log("[useBoardManager] Will attempt to select board:", boardToSelect.id);
-          selectBoard(boardToSelect.id);
-        } else if (fetchedBoards.length === 0 && !sharedBoardIdFromUrl && effectiveUserIdForApi) {
-          // No boards exist, not trying to load a shared one, and we have a user context
-          console.log(`[useBoardManager] No boards found for user ${effectiveUserIdForApi}. Attempting to create a default board.`);
-          const newDefaultBoard = await createNewBoard(true); // Pass flag for default creation
+          if (isMounted) {
+            console.log(`[useBoardManager] fetchAndInitializeBoards: Selecting existing/found board: ${boardToSelect.id}`);
+            selectBoard(boardToSelect.id); // selectBoard will set currentRoom and navigate
+          }
+        } else if (fetchedBoards.length === 0 && !currentUrlBoardId && !isAutoCreatingBoardRef.current) {
+          // Only create if no boards, no URL board, and not already in process of creating one
+          console.log(`[useBoardManager] fetchAndInitializeBoards: No boards for user ${actualUserIdForDefaults}. Creating default.`);
+          const newDefaultBoard = await createNewBoard(true); // createNewBoard now sets isAutoCreatingBoardRef
           if (newDefaultBoard && isMounted) {
-            console.log("[useBoardManager] Default board created, selecting it:", newDefaultBoard.id);
-            selectBoard(newDefaultBoard.id); // This will set currentRoom and update URL
+            console.log("[useBoardManager] fetchAndInitializeBoards: Default board created, selecting it:", newDefaultBoard.id);
+            // createNewBoard already updates availableRooms. selectBoard will use the updated state.
+            selectBoard(newDefaultBoard.id);
           } else if (isMounted) {
-            console.error("[useBoardManager] Failed to create or select a new default board.");
-            setError("Could not create or load a default board.");
-            setCurrentRoom(null); // Ensure no room is selected
+            setError("Could not create or load a default board."); setCurrentRoom(null);
           }
         } else {
-            console.log("[useBoardManager] No board to select (currentRoom will be null). Frontend should handle this.");
-            setCurrentRoom(null);
+          if (isMounted) {
+            console.log("[useBoardManager] fetchAndInitializeBoards: No specific board to select, currentRoom will be null.");
+            setCurrentRoom(null); // Explicitly set to null if no board is chosen
+          }
         }
-
       } catch (err: any) {
-        console.error("[useBoardManager] Error in fetchAndProcessBoards:", err.message);
-        if (isMounted) setError(err.message || 'Failed to load or initialize boards.');
+        console.error("[useBoardManager] fetchAndInitializeBoards: Error:", err.message);
+        if (isMounted) setError(err.message || 'Failed to initialize boards.');
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (isMounted) {
+            setIsLoading(false);
+            if (!sharedBoardIdFromUrl) { // Only mark as processed if not trying to load a specific shared board initially
+                initialBoardProcessedRef.current = true;
+            }
+        }
       }
     };
 
-    if (isLoaded) { // Ensure Clerk is loaded
-        if (process.env.NEXT_PUBLIC_USE_AUTH !== 'true' || (isSignedIn && userId)) {
-            fetchAndProcessBoards();
-        } else if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && !isSignedIn) {
-            setIsLoading(false);
-            // setError("User not signed in."); // Already handled
+    // Conditions to run the main initialization logic
+    if (isLoaded && (process.env.NEXT_PUBLIC_USE_AUTH !== 'true' || (isSignedIn && userId))) {
+        // Only run if not already processed for this userId or if a new sharedBoardIdFromUrl is present
+        if (!initialBoardProcessedRef.current || (sharedBoardIdFromUrl && currentRoom?.id !== sharedBoardIdFromUrl)) {
+            fetchAndInitializeBoards();
+        } else {
+             setIsLoading(false); // Already processed, ensure loading is off
         }
+    } else if (isLoaded && process.env.NEXT_PUBLIC_USE_AUTH === 'true' && !isSignedIn) {
+        setIsLoading(false); // Not signed in, stop loading
     }
-
+    
     return () => { isMounted = false; };
-  }, [userId, sharedBoardIdFromUrl, getToken, BOARDS_API_BASE_URL, isLoaded, isSignedIn, router, createNewBoard, selectBoard]);
-  // Added createNewBoard and selectBoard to dependency array of the main effect.
+  }, [userId, sharedBoardIdFromUrl, getToken, BOARDS_API_BASE_URL, isLoaded, isSignedIn, router, createNewBoard, selectBoard, searchParams, currentRoom]);
+  // Added searchParams and currentRoom to main useEffect deps
 
-  // renameBoard and ensureBoardIsShareable remain largely the same
-  // but ensure they use BOARDS_API_BASE_URL and correct auth logic.
-  // (Code for renameBoard and ensureBoardIsShareable from previous correct version)
 
-    const renameBoard = useCallback(async (boardId: string, newName: string) => {
-        const effectiveUserId = (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && userId) ? userId : "anonymous-user";
-        if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && !isSignedIn) {
-            setError("Cannot rename board: User not signed in.");
-            return;
+  const renameBoard = useCallback(async (boardId: string, newName: string) => {
+    // ... (Implementation from the previous correct version, using availableRooms state or ref) ...
+    const effectiveUserId = (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && userId) ? userId : "anonymous-user";
+    if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && !isSignedIn) {
+        setError("Cannot rename board: User not signed in."); return;
+    }
+    if (!effectiveUserId) { setError("Cannot rename board: User ID is missing."); return; }
+    if (!newName.trim()) return;
+
+    const trimmedName = newName.trim();
+    // Use state directly here as availableRooms is a dependency
+    const originalRoomIndex = availableRooms.findIndex((r: RoomData) => r.id === boardId);
+    if (originalRoomIndex === -1) {
+        setError("Cannot rename: board not found locally."); return;
+    }
+    const originalRoom = { ...availableRooms[originalRoomIndex] };
+
+    setAvailableRooms(prevRooms => prevRooms.map((room: RoomData) => room.id === boardId ? { ...room, name: trimmedName } : room));
+    if (currentRoom?.id === boardId) setCurrentRoom(prev => prev ? { ...prev, name: trimmedName } : null);
+    setError(null);
+
+    try {
+        let token: string | null = null;
+        if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && isSignedIn && userId) {
+            token = await getToken(); if (!token) throw new Error('Auth token failed for renaming.');
         }
-        if (!effectiveUserId) {
-             setError("Cannot rename board: User ID is missing."); return;
-        }
-        if (!newName.trim()) return;
-
-        const trimmedName = newName.trim();
-        const originalRoomIndex = availableRooms.findIndex(r => r.id === boardId);
-        if (originalRoomIndex === -1) {
-            console.error("[useBoardManager] Cannot rename: board not found locally", boardId);
-            setError("Cannot rename: board not found locally."); return;
-        }
-        const originalRoom = { ...availableRooms[originalRoomIndex] };
-
-        // Optimistic Update
-        setAvailableRooms(prevRooms => prevRooms.map(room => room.id === boardId ? { ...room, name: trimmedName } : room));
-        if (currentRoom?.id === boardId) setCurrentRoom(prev => prev ? { ...prev, name: trimmedName } : null);
-        setError(null);
-
-        try {
-            let token: string | null = null;
-            if (process.env.NEXT_PUBLIC_USE_AUTH === 'true' && isSignedIn && userId) {
-                token = await getToken();
-                if (!token) throw new Error('User is authenticated but failed to retrieve token for renaming board.');
-            }
-            const headers: HeadersInit = { 'Content-Type': 'application/json' };
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-
-            console.log(`[useBoardManager] Renaming board ${boardId} via: ${BOARDS_API_BASE_URL}/api/boards/${boardId}. Auth: ${token ? 'Yes' : 'No'}`);
-            const response = await fetch(`${BOARDS_API_BASE_URL}/api/boards/${boardId}`, { method: 'PUT', headers, body: JSON.stringify({ name: trimmedName }) });
-
-            if (!response.ok) {
-                // Rollback optimistic update
-                setAvailableRooms(prevRooms => { const rooms = [...prevRooms]; rooms[originalRoomIndex] = originalRoom; return rooms; });
-                if (currentRoom?.id === boardId) setCurrentRoom(originalRoom);
-
-                const errorBodyText = await response.text();
-                let errorDetail = errorBodyText; try { const errorJson = JSON.parse(errorBodyText); errorDetail = errorJson.error || errorJson.message || errorBodyText; } catch (e) {}
-                console.error("[useBoardManager] Failed to rename board response:", response.status, errorBodyText);
-                throw new Error(`Failed to rename board: ${response.status} - ${errorDetail}`);
-            }
-            const updatedBoardFromServer: RoomData = await response.json();
-            setAvailableRooms(prevRooms => prevRooms.map(room => room.id === boardId ? updatedBoardFromServer : room));
-            if (currentRoom?.id === boardId) setCurrentRoom(updatedBoardFromServer);
-            console.log("[useBoardManager] Renamed board via API:", boardId, "to", trimmedName);
-        } catch (err: any) {
-            console.error("[useBoardManager] Error renaming board:", err);
-            setError(err.message || 'Failed to rename board.');
-            // Ensure rollback on any error
+        const headers: HeadersInit = { 'Content-Type': 'application/json' }; if (token) headers['Authorization'] = `Bearer ${token}`;
+        const response = await fetch(`${BOARDS_API_BASE_URL}/api/boards/${boardId}`, { method: 'PUT', headers, body: JSON.stringify({ name: trimmedName }) });
+        if (!response.ok) {
             setAvailableRooms(prevRooms => { const rooms = [...prevRooms]; rooms[originalRoomIndex] = originalRoom; return rooms; });
             if (currentRoom?.id === boardId) setCurrentRoom(originalRoom);
+            const errTxt = await response.text(); throw new Error(`Rename failed: ${response.status} - ${errTxt}`);
         }
-    }, [userId, availableRooms, currentRoom, getToken, BOARDS_API_BASE_URL, isSignedIn]);
+        const updatedBoardFromServer: RoomData = await response.json();
+        setAvailableRooms(prevRooms => prevRooms.map((room: RoomData) => room.id === boardId ? updatedBoardFromServer : room));
+        if (currentRoom?.id === boardId) setCurrentRoom(updatedBoardFromServer);
+    } catch (err: any) { setError(err.message || 'Failed to rename.'); 
+        setAvailableRooms(prevRooms => { const rooms = [...prevRooms]; rooms[originalRoomIndex] = originalRoom; return rooms; });
+        if (currentRoom?.id === boardId) setCurrentRoom(originalRoom);
+    }
+  }, [userId, currentRoom, getToken, BOARDS_API_BASE_URL, isSignedIn, availableRooms]); // Added availableRooms
 
-    const ensureBoardIsShareable = useCallback((boardId: string): string | null => {
-        const room = availableRooms.find(r => r.id === boardId);
-        if (!room) {
-            console.warn(`[useBoardManager] ensureBoardIsShareable: Room ${boardId} not found.`);
-            return null;
-        }
-        const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        const actualUserIdForDefaults = userId || "anonymous-user";
-        // All boards are shareable by ID, default board also.
-        return `${origin}/?board=${room.id}`;
-      }, [availableRooms, userId]);
+  const ensureBoardIsShareable = useCallback((boardId: string): string | null => {
+    const room = availableRooms.find((r: RoomData) => r.id === boardId); // Use state
+    if (!room) return null;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}/?board=${room.id}`;
+  }, [userId, availableRooms]); // Added availableRooms
 
-  // Expose isLoading and isCreatingDefaultBoard if UI needs to differentiate
+  // `isCreatingDefaultBoard` for the return value.
+  const isProcessingInitial = isLoading || isAutoCreatingBoardRef.current;
+
   return {
-    isLoading: isLoading || isCreatingDefaultBoard, 
+    isLoading: isProcessingInitial, 
     error,
     currentRoom,
     availableRooms,
-    selectBoard,
-    createNewBoard, // Expose the general createNewBoard
+    selectBoard, // This is now stable due to useCallback and careful deps
+    createNewBoard,
     renameBoard,
     ensureBoardIsShareable,
     getDefaultBoardId: userId ? () => getDefaultBoardId(userId) : () => getDefaultBoardId("anonymous-user"),
