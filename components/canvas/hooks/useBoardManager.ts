@@ -130,8 +130,8 @@ export function useBoardManager(userId: string | null) {
 
   useEffect(() => {
     const currentUrlBoardId = searchParams.get('board');
-    console.log(`[useBoardManager] Effect Run -- User: ${userId}, ClerkLoaded: ${isLoaded}, SignedIn: ${isSignedIn}, URLBoard: ${currentUrlBoardId}, InitialLoadCompleted: ${initialLoadCompletedRef.current}, IsFetching: ${isFetchingBoardsRef.current}`);
-
+    console.log(`[useBoardManager] Effect Run -- User: ${userId}, ClerkLoaded: ${isLoaded}, SignedIn: ${isSignedIn}, URLBoard: ${currentUrlBoardId}, CurrentRoomID: ${currentRoom?.id}, InitialLoadCompleted: ${initialLoadCompletedRef.current}, IsFetching: ${isFetchingBoardsRef.current}`);
+  
     if (!isLoaded) {
       console.log("[useBoardManager] Effect: Clerk not loaded. Waiting.");
       if (isMountedRef.current) setIsLoading(true);
