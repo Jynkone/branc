@@ -53,7 +53,7 @@ const components: TLComponents = {
     const isChatSelected = useIsToolSelected(tools["chat"]);
     return (
       <DefaultToolbar {...props}>
-        <TldrawUiMenuItem {...tools["chat"]} isSelected={isChatSelected} />
+        {tools["chat"] && <TldrawUiMenuItem {...tools["chat"]} isSelected={isChatSelected} />}
         <DefaultToolbarContent />
       </DefaultToolbar>
     );
@@ -110,66 +110,65 @@ export function SyncedTldrawCanvas({
     return [ChatShapeUtil, ...defaultShapeUtils] as any;
   }, []);
 
+  console.log(`[SyncedTldrawCanvas] Initializing useSync with URI: ${syncUri}`);
   const store = useSync({
     uri: syncUri,
     assets: multiplayerAssetStore,
     shapeUtils: customShapeUtils,
   });
 
-  const [connectionFailed, setConnectionFailed] = useState(false);
-  const [connectionRetries, setConnectionRetries] = useState(0);
+  const [connectionFailedPermanently, setConnectionFailedPermanently] = useState(false);
+  const [currentConnectionAttempt, setCurrentConnectionAttempt] = useState(0);
   const maxRetries = 3;
 
   useEffect(() => {
-    setConnectionFailed(false);
-    setConnectionRetries(0);
-    console.log(`[SyncedTldrawCanvas] Initializing or URI changed. Attempting to connect to: ${syncUri}`);
+    console.log(`[SyncedTldrawCanvas] New syncUri detected: ${syncUri}. Resetting connection state.`);
+    setConnectionFailedPermanently(false);
+    setCurrentConnectionAttempt(0);
   }, [syncUri]);
 
   useEffect(() => {
     const successfullyConnectedStatus = 'synced-remote';
     const currentStatus = store.status;
 
-    // console.log(`[SyncedTldrawCanvas] Store status update for URI ${syncUri}: ${currentStatus}`);
+    // console.log(`[SyncedTldrawCanvas] Store status for URI ${syncUri}: ${currentStatus}, Attempt: ${currentConnectionAttempt}`);
 
     if (currentStatus === 'error') {
-      if (!connectionFailed && connectionRetries < maxRetries) {
-        console.error(`[SyncedTldrawCanvas] Sync connection error for URI: ${syncUri}. Status: ${currentStatus}. Retry ${connectionRetries + 1}/${maxRetries}`);
-        setConnectionFailed(true);
+      if (currentConnectionAttempt < maxRetries) {
+        // Only set connectionFailedPermanently to false if it was true, to allow retry UI to clear
+        if (connectionFailedPermanently) setConnectionFailedPermanently(false);
+
+        console.error(`[SyncedTldrawCanvas] Sync connection error (Attempt ${currentConnectionAttempt + 1}/${maxRetries}) for URI: ${syncUri}. Status: ${currentStatus}. Will retry.`);
         
+        const retryDelay = 3000 * (currentConnectionAttempt + 1);
         const timer = setTimeout(() => {
-          console.log(`[SyncedTldrawCanvas] Re-attempting connection (${connectionRetries + 1}/${maxRetries}) for URI: ${syncUri}.`);
-          setConnectionRetries(prev => prev + 1);
-          setConnectionFailed(false); 
-        }, 3000 * (connectionRetries + 1));
-        
+          setCurrentConnectionAttempt(prev => prev + 1);
+        }, retryDelay);
         return () => clearTimeout(timer);
-      } else if (connectionRetries >= maxRetries) {
-        if (!connectionFailed) setConnectionFailed(true); // Ensure UI reflects max retries reached
-        console.error(`[SyncedTldrawCanvas] Max retries reached for URI: ${syncUri}.`);
+      } else if (!connectionFailedPermanently) { // Only set to true once if max retries reached
+        console.error(`[SyncedTldrawCanvas] Max retries (${maxRetries}) reached for URI: ${syncUri}. Marking as permanently failed.`);
+        setConnectionFailedPermanently(true);
       }
     } else if (currentStatus === successfullyConnectedStatus) {
-      if (connectionFailed || connectionRetries > 0) {
-        console.log(`[SyncedTldrawCanvas] Successfully connected to URI: ${syncUri} after ${connectionRetries} retries.`);
-      } else {
-        // console.log(`[SyncedTldrawCanvas] Store status for ${syncUri}: ${currentStatus}`);
+      if (currentConnectionAttempt > 0 || connectionFailedPermanently) {
+        console.log(`[SyncedTldrawCanvas] Successfully connected to URI: ${syncUri} after ${currentConnectionAttempt} attempt(s).`);
       }
-      setConnectionFailed(false);
-      setConnectionRetries(0);
+      setConnectionFailedPermanently(false);
+      setCurrentConnectionAttempt(0);
     } else {
-      // Handle other transient states: 'loading', 'connecting', 'not-synced', 'synced-local'
+      // For 'loading', 'connecting', 'not-synced', 'synced-local'
+      // If we were in a permanently failed state, but the status changes to something else
+      // (e.g. user clicked "Try Again" which reset state, and now it's 'loading'),
+      // ensure connectionFailedPermanently is false.
+      if (connectionFailedPermanently) {
+        setConnectionFailedPermanently(false);
+      }
       // console.log(`[SyncedTldrawCanvas] Store in transient state for ${syncUri}: ${currentStatus}`);
-      // If it was previously marked as failed, but is now in a (non-error, non-success) transient state,
-      // it means a retry might be in progress or it's recovering. Keep connectionFailed as true
-      // until success or max retries are hit for the 'error' state.
-      // No specific action needed here other than potentially logging.
-      // The `connectionFailed` flag will only be reset by a successful connection
-      // or by the user clicking "Try Again".
     }
+  }, [store.status, syncUri, currentConnectionAttempt, maxRetries, connectionFailedPermanently]);
 
-  }, [store.status, syncUri, connectionFailed, connectionRetries, maxRetries]);
 
-  if (connectionFailed && connectionRetries >= maxRetries) {
+  if (connectionFailedPermanently) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="w-full max-w-md p-6">
@@ -183,8 +182,8 @@ export function SyncedTldrawCanvas({
               <Button 
                 variant="destructive"
                 onClick={() => {
-                  setConnectionFailed(false);
-                  setConnectionRetries(0); 
+                  setConnectionFailedPermanently(false);
+                  setCurrentConnectionAttempt(0); 
                 }}
               >
                 Try Again
