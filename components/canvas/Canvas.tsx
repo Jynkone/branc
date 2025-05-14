@@ -1,26 +1,12 @@
+// File: Jynkone/branc/branc-35acf07df2bc3fdbf1d7d97ee2c139d0fcf9291a/components/canvas/Canvas.tsx
 "use client";
 
 import {
-  DefaultKeyboardShortcutsDialog,
-  DefaultKeyboardShortcutsDialogContent,
-  DefaultToolbar,
-  DefaultToolbarContent,
-  TLComponents,
-  TLUiOverrides,
-  DefaultMainMenu,
-  TLUiAssetUrlOverrides,
-  TldrawUiMenuItem,
-  useIsToolSelected,
-  useTools,
-  defaultShapeUtils,
   Editor,
-} from "tldraw";
-import { useSync } from '@tldraw/sync';
-import { useMemo, useState, useRef, useEffect } from 'react';
+} from "tldraw"; // Keep necessary tldraw imports if any are directly used here, otherwise move to SyncedTldrawCanvas
+import { useMemo, useState, useRef, useEffect, useCallback } // Added useCallback
+  from 'react';
 import "tldraw/tldraw.css";
-import { chatTool } from "@/tools/ChatTool";
-import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
-import { multiplayerAssetStore } from "@/lib/multiplayerAssetStore";
 
 // Import Hooks
 import { useBoardManager } from './hooks/useBoardManager';
@@ -29,70 +15,25 @@ import { useShareDialog } from './hooks/useShareDialog';
 import { useDynamicPositioning } from './hooks/useDynamicPositioning';
 
 // Import Components
-import { CanvasUI } from './CanvasUI';
-import { Alert } from '@/components/ui/alert';
-import { AlertTitle } from '@/components/ui/alert';
-import { AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { SyncedTldrawCanvas } from './SyncedTldrawCanvas'; // We will create this new component
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'; // Reverted to alias path
+import { Button } from '@/components/ui/button'; // Reverted to alias path
 
 // Ensure WORKER_URL has a valid protocol and is properly formatted
 const getFormattedWorkerUrl = () => {
   const url = process.env.NEXT_PUBLIC_WORKER_URL || "branc.ajeenkya29.workers.dev";
-  // Add https:// if no protocol is specified
   return url.startsWith("http") ? url : `https://${url}`;
 };
 
 const WORKER_URL = getFormattedWorkerUrl();
-console.log("Using worker URL:", WORKER_URL);
 
-const uiOverrides: TLUiOverrides = {
-  tools(editor, tools) {
-    tools.chat = {
-      id: "chat",
-      icon: "chat-icon",
-      label: "Chat",
-      kbd: "c",
-      onSelect: () => editor.setCurrentTool("chat"),
-    };
-    return tools;
-  },
+// Define getFormattedBoardId here as it's used to construct syncUri
+const getFormattedBoardId = (boardId: string) => {
+  if (!boardId) return '';
+  return boardId.replace(/^(user-)+/, 'user-');
 };
-
-const components: TLComponents = {
-  Toolbar: (props) => {
-    const tools = useTools();
-    const isChatSelected = useIsToolSelected(tools["chat"]);
-    return (
-      <DefaultToolbar {...props}>
-        <TldrawUiMenuItem {...tools["chat"]} isSelected={isChatSelected} />
-        <DefaultToolbarContent />
-      </DefaultToolbar>
-    );
-  },
-  KeyboardShortcutsDialog: (props) => {
-    const tools = useTools();
-    return (
-      <DefaultKeyboardShortcutsDialog {...props}>
-        <DefaultKeyboardShortcutsDialogContent />
-        <TldrawUiMenuItem {...tools["chat"]} />
-      </DefaultKeyboardShortcutsDialog>
-    );
-  },
-  PageMenu: null,
-  MainMenu: DefaultMainMenu,
-  DebugPanel: null,
-};
-
-const customAssetUrls: TLUiAssetUrlOverrides = {
-  icons: {
-    "chat-icon": "/BranchBox.svg",
-  },
-};
-
-const customTools = [chatTool];
 
 export function Canvas({ userId }: { userId: string }) {
-  // --- Instantiate Hooks ---
   const boardManager = useBoardManager(userId);
   const { isLoading, currentRoom, availableRooms, selectBoard, createNewBoard, renameBoard, ensureBoardIsShareable } = boardManager;
 
@@ -112,121 +53,50 @@ export function Canvas({ userId }: { userId: string }) {
   const tldrawContainerRef = useRef<HTMLDivElement>(null);
   const { selectorPosition } = useDynamicPositioning(tldrawContainerRef);
 
-  // State for editor instance and connection status
-  const [editor, setEditor] = useState<Editor | null>(null);
-  const [connectionFailed, setConnectionFailed] = useState(false);
-  const [connectionRetries, setConnectionRetries] = useState(0);
-  const maxRetries = 3;
+  const [editor, setEditor] = useState<Editor | null>(null); // Keep editor state if CanvasUI needs it directly, or move to SyncedTldrawCanvas
 
-  // Format board ID to avoid duplicate prefixes that could cause URL issues
-  const getFormattedBoardId = (boardId: string) => {
-    if (!boardId) return '';
-    // Make sure we don't have duplicated user- prefixes by removing any existing ones
-    return boardId.replace(/^(user-)+/, 'user-');
-  };
-
-  // Construct connection URI
-  const getSyncUri = () => {
-    if (!currentRoom) return '';
+  // Construct connection URI - memoize it based on currentRoom
+  const syncUri = useMemo(() => {
+    if (!currentRoom || !currentRoom.id) return ''; // Return empty if no currentRoom or id
     const formattedId = getFormattedBoardId(currentRoom.id);
+    console.log(`[Canvas.tsx] Calculated syncUri: ${WORKER_URL}/connect/${formattedId} for room: ${currentRoom.id}`);
     return `${WORKER_URL}/connect/${formattedId}`;
-  };
+  }, [currentRoom]);
 
-  const syncUri = getSyncUri();
-  console.log("Connecting to:", syncUri);
 
-  // --- Tldraw Setup ---
-  const customShapeUtils = useMemo(() => {
-    return [ChatShapeUtil, ...defaultShapeUtils] as any;
-  }, []);
-
-  // Initialize sync without onError (since it's not in the type definition)
-  const store = useSync({
-    uri: syncUri,
-    assets: multiplayerAssetStore,
-    shapeUtils: customShapeUtils,
-  });
-
-  // Use effect to detect WebSocket connection issues via store status
-  useEffect(() => {
-    if (store.status === 'error' && connectionRetries < maxRetries) {
-      console.error("Sync connection error detected");
-      setConnectionFailed(true);
-      
-      const timer = setTimeout(() => {
-        console.log(`Attempting reconnection (${connectionRetries + 1}/${maxRetries})...`);
-        setConnectionFailed(false);
-        setConnectionRetries(prev => prev + 1);
-        // Force a re-render to attempt reconnection
-        // We can't directly reconnect the store, but we can change the component state
-      }, 3000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [store.status, connectionRetries, maxRetries]);
-
-  // --- Loading State ---
-  if (isLoading || !currentRoom) {
+  // Loading State
+  if (isLoading) { // Simplified loading check, currentRoom check will happen before rendering SyncedTldrawCanvas
     return <div className="flex items-center justify-center h-screen">Loading Canvas...</div>;
   }
 
-  // --- Connection Error UI ---
-  if (connectionFailed && connectionRetries >= maxRetries) {
+  // If there's no current room after loading, it might be an error or initial state.
+  // This also handles the case where syncUri would be empty.
+  if (!currentRoom || !syncUri) {
+    // This state could occur if board fetching fails or no default board is established.
+    // You might want a more specific error message or a button to create/select a board.
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="w-full max-w-md p-6">
-          <Alert variant="destructive">
-            <AlertTitle>Connection Error</AlertTitle>
-            <AlertDescription className="mt-2">
-              Unable to connect to the collaboration server. You can still use the app in offline mode,
-              but your changes won't be synchronized with others.
-            </AlertDescription>
-            <div className="mt-4 flex justify-end space-x-2">
-              <Button 
-                variant="destructive"
-                onClick={() => {
-                  setConnectionFailed(false);
-                  setConnectionRetries(0);
-                }}
-              >
-                Try Again
-              </Button>
-              <Button 
-                variant="outline"
-                onClick={() => {
-                  // Force reload the page
-                  window.location.reload();
-                }}
-              >
-                Reload Page
-              </Button>
-            </div>
-          </Alert>
+        <div>
+          <p>No board selected or available. Please try again or create a new board.</p>
+          {/* Optionally add a button to try creating a default board or selecting one */}
         </div>
       </div>
     );
   }
 
-  // --- Render ---
+  // Render SyncedTldrawCanvas only when syncUri is valid and currentRoom is available
   return (
-    <CanvasUI
+    <SyncedTldrawCanvas
       userId={userId}
-      store={store}
-      shapeUtils={customShapeUtils}
-      tools={customTools}
-      overrides={uiOverrides}
-      components={components}
-      assetUrls={customAssetUrls}
-      editor={editor}
-      onEditorMount={(editorInstance: Editor) => {
-        console.log("Canvas.tsx: onEditorMount called, setting editor instance.");
-        setEditor(editorInstance);
-      }}
-      tldrawContainerRef={tldrawContainerRef}
-      selectorPosition={selectorPosition}
+      syncUri={syncUri} // Pass the validated syncUri
+      initialCurrentRoom={currentRoom} // Pass currentRoom for initial setup if needed by SyncedTldrawCanvas or its children
       boardManager={boardManager}
       pageSelectorHook={pageSelectorHook}
       shareDialogHook={shareDialogHook}
+      tldrawContainerRef={tldrawContainerRef}
+      selectorPosition={selectorPosition}
+      editorInstance={editor} // Pass editor instance
+      onEditorMount={setEditor} // Pass setEditor
     />
   );
 }
