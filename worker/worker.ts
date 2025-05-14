@@ -1,7 +1,10 @@
 // File: Jynkone/branc/branc-35acf07df2bc3fdbf1d7d97ee2c139d0fcf9291a/worker/worker.ts
 import { handleUnfurlRequest } from 'cloudflare-workers-unfurl';
 import { AutoRouter, cors, error, IRequest, json, RouterType } from 'itty-router';
-import { createClerkClient, ClerkClient } from '@clerk/backend';
+// Import createClerkClient for creating an instance (though we might not need it for verifyToken if used standalone)
+// and import verifyToken directly.
+import { createClerkClient, verifyToken as clerkVerifyToken } from '@clerk/backend'; // Import verifyToken
+import type { ClerkClient, VerifyTokenOptions } from '@clerk/backend'; // Import types
 import { handleAssetDownload, handleAssetUpload } from './assetUploads';
 import { Environment } from './types';
 import type { RoomData } from '../components/canvas/hooks/useBoardManager';
@@ -25,9 +28,10 @@ async function saveUserBoards(kv: KVNamespace, userId: string, boards: RoomData[
 }
 
 // --- Clerk Authentication Logic ---
+// getClerkClientInstance might not be strictly needed if verifyToken is used standalone,
+// but keeping it in case other Clerk Client methods are used elsewhere or in the future.
 const getClerkClientInstance = (secretKey: string | undefined): ClerkClient | null => {
     if (!secretKey) {
-        // console.warn("[Worker] Auth: CLERK_SECRET_KEY is undefined. Cannot create Clerk client.");
         return null;
     }
     try {
@@ -43,7 +47,7 @@ export interface AuthenticatedRequest extends IRequest {
 }
 
 async function getAuthUserId(
-    stdRequest: Request, // This is the standard Fetch API Request object
+    stdRequest: Request, // Standard Fetch API Request object
     env: Environment
 ): Promise<string | null> {
     console.log(`[Worker] getAuthUserId: Processing request to ${stdRequest.url}`);
@@ -58,45 +62,40 @@ async function getAuthUserId(
         return 'anonymous-dev-user';
     }
 
-    const clerk = getClerkClientInstance(env.CLERK_SECRET_KEY);
-    if (!clerk) {
-        console.error("[Worker] Auth: Clerk client instance is null (CLERK_SECRET_KEY was set but instance failed to create).");
+    const authHeader = stdRequest.headers.get('Authorization');
+    const headerToken = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.substring(7) : undefined;
+
+    if (!headerToken) {
+        console.warn("[Worker] Auth: Authorization header missing or not Bearer type. Cannot verify token.");
         return null;
     }
 
     try {
-        // Call authenticateRequest with the Request object.
-        // Clerk's SDK should automatically look for tokens in standard places (Authorization header, cookies).
-        // We provide an empty options object if no specific overrides are needed, or omit it if allowed.
-        // Forcing the secretKey here can sometimes help if the client wasn't fully initialized with it
-        // or if the SDK version expects it for this specific call.
-        const authState = await clerk.authenticateRequest(stdRequest, {
+        // Define options for verifyToken, ensuring secretKey is provided.
+        const verifyTokenOptions: VerifyTokenOptions = {
             secretKey: env.CLERK_SECRET_KEY,
-            // No explicit headerToken here; let Clerk find it.
-            // Other options like loadUser: true, loadSession: true could be added if necessary.
-        });
-        
-        console.log("[Worker] Auth: clerk.authenticateRequest completed. Status:", authState.status);
+            // Add other options like 'authorizedParties' or 'audience' if needed for your setup
+            // clockSkewInMs: 5000, // Default is 5 seconds
+        };
 
-        if (authState.status === 'signed-in' && authState.toAuth().userId) {
-            console.log("[Worker] Auth: Request authenticated successfully. UserID:", authState.toAuth().userId);
-            return authState.toAuth().userId;
+        // Use the imported clerkVerifyToken function
+        const claims = await clerkVerifyToken(headerToken, verifyTokenOptions);
+        
+        console.log("[Worker] Auth: clerkVerifyToken completed. Claims subject (userId):", claims.sub);
+
+        if (claims && claims.sub) {
+            console.log("[Worker] Auth: Token verified successfully. UserID:", claims.sub);
+            return claims.sub; // claims.sub typically holds the user ID
         } else {
-            console.warn("[Worker] Auth: Request not signed in. Status:", authState.status, "Reason:", authState.reason, "Message:", authState.message);
-            const authHeader = stdRequest.headers.get('Authorization');
-            if (!authHeader) console.warn("[Worker] Auth: Detail - Authorization header was missing from the original request.");
-            else if (!authHeader.startsWith('Bearer ')) console.warn("[Worker] Auth: Detail - Authorization header was present but not 'Bearer ' type.");
-            else console.warn("[Worker] Auth: Detail - Bearer token was present but Clerk deemed it invalid or session expired.");
+            console.warn("[Worker] Auth: Token verification succeeded but claims or sub (userId) missing.", claims);
             return null;
         }
 
     } catch (err: any) {
-        console.error("[Worker] Auth: EXCEPTION during clerk.authenticateRequest:", err.message, err.stack);
-        if (err.clerkError && err.errors) {
-             console.error("[Worker] Auth: Clerk error details:", JSON.stringify(err.errors));
-        } else if (err.clerkError) {
-            console.error("[Worker] Auth: Clerk error (no further details):", err);
-        }
+        console.error("[Worker] Auth: EXCEPTION during clerkVerifyToken:", err.message);
+        if (err.status) console.error("[Worker] Auth: Error status:", err.status);
+        if (err.errors) console.error("[Worker] Auth: Clerk error details:", JSON.stringify(err.errors));
+        else if (err.clerkError) console.error("[Worker] Auth: Clerk error (generic):", err);
         return null;
     }
 }
