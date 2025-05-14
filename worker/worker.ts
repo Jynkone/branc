@@ -1,13 +1,10 @@
-// File: Jynkone/branc/branc-35acf07df2bc3fdbf1d7d97ee2c139d0fcf9291a/worker/worker.ts
+// File: jynkone/branc/branc-16a65ff66ddc7f3222c6b1c23f719827e18fdb63/worker/worker.ts
 import { handleUnfurlRequest } from 'cloudflare-workers-unfurl';
 import { AutoRouter, cors, error, IRequest, json, RouterType } from 'itty-router';
-// Import createClerkClient for creating an instance (though we might not need it for verifyToken if used standalone)
-// and import verifyToken directly.
-import { createClerkClient, verifyToken as clerkVerifyToken } from '@clerk/backend'; // Import verifyToken
-import type { ClerkClient, VerifyTokenOptions } from '@clerk/backend'; // Import types
+import { createClerkClient, verifyToken as clerkVerifyToken } from '@clerk/backend'; 
+import type { ClerkClient, VerifyTokenOptions } from '@clerk/backend';
 import { handleAssetDownload, handleAssetUpload } from './assetUploads';
-import { Environment } from './types';
-import type { RoomData } from '../components/canvas/hooks/useBoardManager';
+import type { RoomData, Environment } from './types';
 
 export { TldrawDurableObject } from './TldrawDurableObject';
 
@@ -28,8 +25,6 @@ async function saveUserBoards(kv: KVNamespace, userId: string, boards: RoomData[
 }
 
 // --- Clerk Authentication Logic ---
-// getClerkClientInstance might not be strictly needed if verifyToken is used standalone,
-// but keeping it in case other Clerk Client methods are used elsewhere or in the future.
 const getClerkClientInstance = (secretKey: string | undefined): ClerkClient | null => {
     if (!secretKey) {
         return null;
@@ -47,7 +42,7 @@ export interface AuthenticatedRequest extends IRequest {
 }
 
 async function getAuthUserId(
-    stdRequest: Request, // Standard Fetch API Request object
+    stdRequest: Request, 
     env: Environment
 ): Promise<string | null> {
     console.log(`[Worker] getAuthUserId: Processing request to ${stdRequest.url}`);
@@ -71,21 +66,17 @@ async function getAuthUserId(
     }
 
     try {
-        // Define options for verifyToken, ensuring secretKey is provided.
         const verifyTokenOptions: VerifyTokenOptions = {
             secretKey: env.CLERK_SECRET_KEY,
-            // Add other options like 'authorizedParties' or 'audience' if needed for your setup
-            // clockSkewInMs: 5000, // Default is 5 seconds
         };
 
-        // Use the imported clerkVerifyToken function
         const claims = await clerkVerifyToken(headerToken, verifyTokenOptions);
         
         console.log("[Worker] Auth: clerkVerifyToken completed. Claims subject (userId):", claims.sub);
 
         if (claims && claims.sub) {
             console.log("[Worker] Auth: Token verified successfully. UserID:", claims.sub);
-            return claims.sub; // claims.sub typically holds the user ID
+            return claims.sub;
         } else {
             console.warn("[Worker] Auth: Token verification succeeded but claims or sub (userId) missing.", claims);
             return null;
@@ -104,20 +95,51 @@ const generateShareableBoardId = (): string => {
     return `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
-const { preflight, corsify } = cors({ origin: '*', allowHeaders: 'Authorization, Content-Type' });
+// Define CORS options if you need to customize them further,
+// otherwise, the default '*' origin from cors() is often fine for development.
+const corsOptions = {
+    origin: '*', // Allow all origins
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Authorization', 'Content-Type', 'X-Dev-User-Id'],
+};
 
-const router: RouterType<AuthenticatedRequest, [Environment, ExecutionContext]> = AutoRouter<AuthenticatedRequest, [Environment, ExecutionContext]>({
-  before: [preflight],
-  finally: [corsify],
+const { preflight, corsify: corsifyResponse } = cors(corsOptions); // Renamed to avoid conflict if cors is used as a function
+
+const router = AutoRouter<AuthenticatedRequest, [Environment, ExecutionContext]>({
+  before: [preflight], // Handles OPTIONS requests and sets CORS headers for preflight
+  // The `finally` array in itty-router with corsify is used to wrap successful responses.
+  // For error responses from `catch`, we need to handle CORS headers manually or ensure `corsifyResponse` is called.
+  finally: [corsifyResponse], 
   catch: (e, request) => {
-    console.error(`[Worker] Router error for ${request.method} ${request.url}:`, e);
-    return error(500, { message: "Internal Router Error", detail: e instanceof Error ? e.message : String(e) });
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    const errorStack = e instanceof Error ? e.stack : "No stack available";
+    console.error(`[Worker] Router error for ${request.method} ${request.url}: ${errorMsg}`, e);
+    console.error(`[Worker] Router error stack: ${errorStack}`);
+    
+    const errorResponse = new Response(JSON.stringify({ 
+        message: "Internal Router Error", 
+        detail: errorMsg,
+    }), {
+        status: 500,
+        headers: { 
+            'Content-Type': 'application/json',
+            // Manually add ACAO header for errors not caught by the main corsify
+            'Access-Control-Allow-Origin': corsOptions.origin 
+        }
+    });
+    // Though `finally` with `corsifyResponse` should ideally catch this,
+    // being explicit for error responses is safer if it doesn't.
+    // If corsifyResponse is robust, this manual header might be redundant.
+    // Test if corsifyResponse in `finally` correctly applies to these error responses.
+    // For now, directly adding the header is a surefire way.
+    return errorResponse;
   },
 });
 
 const withAuth = async (request: AuthenticatedRequest, env: Environment, ctx: ExecutionContext) => {
-    const userId = await getAuthUserId(request, env);
+    const userId = await getAuthUserId(request as unknown as Request, env); 
     if (!userId) {
+        // This error response will be passed to the router's `finally` handlers, including corsifyResponse
         return error(401, { error: 'Unauthorized: Invalid or missing token.' });
     }
     request.userId = userId;
@@ -129,10 +151,10 @@ router.get('/api/boards', withAuth, async (request, env) => {
     console.log(`[Worker] GET /api/boards for userId: ${userId}`);
     try {
         const boards = await getUserBoards(env.BOARD_METADATA, userId);
-        return json(boards);
-    } catch (err) {
-        console.error(`[Worker] Error fetching boards for user ${userId}:`, err);
-        return error(500, 'Internal Server Error fetching boards');
+        return json(boards); // This will be wrapped by corsifyResponse from `finally`
+    } catch (err: any) {
+        console.error(`[Worker] Error fetching boards for user ${userId}:`, err.message, err.stack);
+        return error(500, 'Internal Server Error fetching boards'); // Will also be wrapped
     }
 });
 
@@ -140,7 +162,10 @@ router.post('/api/boards', withAuth, async (request, env) => {
     const userId = request.userId!;
     console.log(`[Worker] POST /api/boards for userId: ${userId}`);
     try {
-        const body = await request.json?.();
+        const body = await request.json?.().catch(e => {
+            console.error("[Worker] POST /api/boards: Invalid JSON in request body", e);
+            throw new SyntaxError("Invalid JSON in request body");
+        });
         const name = body?.name;
 
         if (!name || typeof name !== 'string' || !name.trim()) {
@@ -151,7 +176,7 @@ router.post('/api/boards', withAuth, async (request, env) => {
         const newBoard: RoomData = {
             id: generateShareableBoardId(),
             name: name.trim(),
-            isShared: true,
+            isShared: true, 
             owner: userId,
             createdAt: Date.now(),
         };
@@ -161,7 +186,7 @@ router.post('/api/boards', withAuth, async (request, env) => {
         console.log(`[Worker] Created new board "${newBoard.name}" (ID: ${newBoard.id}) for userId: ${userId}`);
         return json(newBoard, { status: 201 });
     } catch (err: any) {
-        console.error(`[Worker] Error creating board for user ${userId}:`, err);
+        console.error(`[Worker] Error creating board for user ${userId}:`, err.message, err.stack);
         if (err instanceof SyntaxError) return error(400, 'Bad Request: Invalid JSON');
         return error(500, 'Internal Server Error creating board');
     }
@@ -172,7 +197,10 @@ router.put('/api/boards/:boardId', withAuth, async (request, env) => {
     const boardId = request.params.boardId;
     console.log(`[Worker] PUT /api/boards/${boardId} for userId: ${userId}`);
     try {
-        const body = await request.json?.();
+        const body = await request.json?.().catch(e => {
+            console.error(`[Worker] PUT /api/boards/${boardId}: Invalid JSON in request body`, e);
+            throw new SyntaxError("Invalid JSON in request body");
+        });
         const name = body?.name;
 
         if (!name || typeof name !== 'string' || !name.trim()) {
@@ -185,7 +213,7 @@ router.put('/api/boards/:boardId', withAuth, async (request, env) => {
         let forbidden = false;
         const updatedBoards = currentBoards.map(board => {
             if (board.id === boardId) {
-                if (board.owner !== userId && board.owner !== 'unknown' && userId !== 'anonymous-dev-user') {
+                if (board.owner !== userId && userId !== 'anonymous-dev-user' && board.owner !== 'unknown') {
                     console.warn(`[Worker] Forbidden attempt to rename board. User ${userId} does not own board ${boardId} (owner: ${board.owner})`);
                     forbidden = true;
                 }
@@ -204,32 +232,43 @@ router.put('/api/boards/:boardId', withAuth, async (request, env) => {
         return json(updatedBoard);
 
     } catch (err: any) {
-        console.error(`[Worker] Error renaming board ${boardId} for user ${userId}:`, err);
+        console.error(`[Worker] Error renaming board ${boardId} for user ${userId}:`, err.message, err.stack);
         if (err instanceof SyntaxError) return error(400, 'Bad Request: Invalid JSON');
         return error(500, 'Internal Server Error renaming board');
     }
 });
 
-// --- Existing Routes ---
-router.get('/connect/:roomId', (request, env: Environment) => {
+// --- WebSocket Connection Route ---
+router.get('/connect/:roomId', (request: IRequest, env: Environment, ctx: ExecutionContext) => {
     const roomId = request.params.roomId;
     if (!roomId) {
         return error(400, 'Missing roomId for /connect');
     }
-    console.log(`[Worker] GET /connect/${roomId}`);
+    console.log(`[Worker] GET /connect/${roomId} - Original URL from itty-router request: ${request.url}`);
     try {
         const id = env.TLDRAW_DURABLE_OBJECT.idFromName(roomId);
         const stub = env.TLDRAW_DURABLE_OBJECT.get(id);
-        return stub.fetch(request as unknown as Request);
+
+        const forwardedRequest = new Request(request.url, {
+            method: request.method,
+            headers: request.headers,
+            body: (request.method !== 'GET' && request.method !== 'HEAD') ? request.body : undefined,
+        });
+        
+        console.log(`[Worker] Forwarding to DO with explicitly created Request - Method: ${forwardedRequest.method}, URL: ${forwardedRequest.url}`);
+        return stub.fetch(forwardedRequest);
+
     } catch (e: any) {
-        console.error("[Worker] Error forwarding to DO for /connect:", e);
+        console.error("[Worker] Error in /connect/:roomId (during stub creation or request forwarding):", e.message, e.stack);
         if (e.message?.includes('binding') || e.message?.includes('TLDRAW_DURABLE_OBJECT')) {
              return error(500, `Server configuration error related to Durable Object binding: ${e.message}`);
         }
-        return error(500, 'Internal Server Error connecting to board via DO');
+        return error(500, `Internal Server Error connecting to board via DO: ${e.message}`);
     }
-})
-  .post('/uploads/:uploadId', handleAssetUpload)
+});
+
+// --- Other Existing Routes ---
+router.post('/uploads/:uploadId', handleAssetUpload)
   .get('/uploads/:uploadId', handleAssetDownload)
   .get('/unfurl', handleUnfurlRequest)
   .all('*', (request) => error(404, `Not Found in Worker: ${request.method} ${request.url}`));
@@ -238,8 +277,24 @@ export default {
     async fetch(request: Request, env: Environment, ctx: ExecutionContext): Promise<Response> {
         return router.fetch(request, env, ctx)
           .catch(err => {
-            console.error("[Worker] Uncaught error in fetch handler:", err);
-            return new Response("Internal Server Error", { status: 500 });
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            const errorStack = err instanceof Error ? err.stack : "No stack available";
+            console.error("[Worker] Uncaught error in main fetch handler:", errorMsg, errorStack);
+            
+            const errorResponse = new Response(JSON.stringify({ 
+                error: "Unhandled error in worker", 
+                detail: errorMsg,
+            }), {
+                 status: 500,
+                 headers: { 
+                     'Content-Type': 'application/json',
+                     // Manually set CORS headers for this outermost catch
+                     'Access-Control-Allow-Origin': corsOptions.origin,
+                     'Access-Control-Allow-Methods': corsOptions.methods?.join(', ') || 'GET, POST, PUT, DELETE, OPTIONS',
+                     'Access-Control-Allow-Headers': corsOptions.allowHeaders?.join(', ') || 'Authorization, Content-Type',
+                 }
+            });
+            return errorResponse;
           });
     },
 };
