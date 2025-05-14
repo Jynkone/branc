@@ -1,7 +1,7 @@
 // File: Jynkone/branc/branc-35acf07df2bc3fdbf1d7d97ee2c139d0fcf9291a/worker/worker.ts
 import { handleUnfurlRequest } from 'cloudflare-workers-unfurl';
 import { AutoRouter, cors, error, IRequest, json, RouterType } from 'itty-router';
-import { createClerkClient, ClerkClient } from '@clerk/backend'; // Import ClerkClient
+import { createClerkClient, ClerkClient } from '@clerk/backend';
 import { handleAssetDownload, handleAssetUpload } from './assetUploads';
 import { Environment } from './types';
 import type { RoomData } from '../components/canvas/hooks/useBoardManager';
@@ -27,6 +27,7 @@ async function saveUserBoards(kv: KVNamespace, userId: string, boards: RoomData[
 // --- Clerk Authentication Logic ---
 const getClerkClientInstance = (secretKey: string | undefined): ClerkClient | null => {
     if (!secretKey) {
+        // console.warn("[Worker] Auth: CLERK_SECRET_KEY is undefined. Cannot create Clerk client.");
         return null;
     }
     try {
@@ -39,13 +40,12 @@ const getClerkClientInstance = (secretKey: string | undefined): ClerkClient | nu
 
 export interface AuthenticatedRequest extends IRequest {
     userId?: string;
-    // itty-router's IRequest is typically compatible with the standard Request,
-    // but this interface helps if we add custom properties via middleware.
 }
 
-// Corrected getAuthUserId function
-async function getAuthUserId(stdRequest: Request, env: Environment): Promise<string | null> {
-    // Note: stdRequest here is the standard Fetch API Request object.
+async function getAuthUserId(
+    stdRequest: Request, // This is the standard Fetch API Request object
+    env: Environment
+): Promise<string | null> {
     console.log(`[Worker] getAuthUserId: Processing request to ${stdRequest.url}`);
 
     if (!env.CLERK_SECRET_KEY) {
@@ -60,43 +60,21 @@ async function getAuthUserId(stdRequest: Request, env: Environment): Promise<str
 
     const clerk = getClerkClientInstance(env.CLERK_SECRET_KEY);
     if (!clerk) {
-        console.error("[Worker] Auth: Clerk client instance is null (CLERK_SECRET_KEY was set but instance failed).");
+        console.error("[Worker] Auth: Clerk client instance is null (CLERK_SECRET_KEY was set but instance failed to create).");
         return null;
     }
 
-    const authHeader = stdRequest.headers.get('Authorization');
-    const headerToken = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.substring(7) : undefined;
-
-    // if (headerToken) {
-    //     console.log("[Worker] Auth: Extracted Bearer token (first 20 chars):", headerToken.substring(0, 20) + "...");
-    // } else {
-    //     console.log("[Worker] Auth: Authorization header missing or not Bearer type.");
-    // }
-
     try {
-        // Define the options object for authenticateRequest.
-        // The type for this options object is not always explicitly exported as 'ClerkMiddlewareOptions'.
-        // We can define it based on the known properties.
-        const authOptions: {
-            secretKey?: string;
-            headerToken?: string;
-            loadUser?: boolean;
-            loadSession?: boolean;
-            // Add other potential options based on Clerk documentation if needed
-        } = {
-            secretKey: env.CLERK_SECRET_KEY, // Often good to pass for clarity/overriding client's initial key
-        };
-
-        if (headerToken) {
-            authOptions.headerToken = headerToken;
-        }
-        // If you also want to support cookie-based sessions for some reason (less common for API workers)
-        // const cookieToken = cookies(stdRequest.headers.get('Cookie') || '').get('__session');
-        // if (cookieToken) authOptions.cookieToken = cookieToken;
-
-
-        // Pass the standard Request object as the first argument, and options as the second.
-        const authState = await clerk.authenticateRequest(stdRequest, authOptions);
+        // Call authenticateRequest with the Request object.
+        // Clerk's SDK should automatically look for tokens in standard places (Authorization header, cookies).
+        // We provide an empty options object if no specific overrides are needed, or omit it if allowed.
+        // Forcing the secretKey here can sometimes help if the client wasn't fully initialized with it
+        // or if the SDK version expects it for this specific call.
+        const authState = await clerk.authenticateRequest(stdRequest, {
+            secretKey: env.CLERK_SECRET_KEY,
+            // No explicit headerToken here; let Clerk find it.
+            // Other options like loadUser: true, loadSession: true could be added if necessary.
+        });
         
         console.log("[Worker] Auth: clerk.authenticateRequest completed. Status:", authState.status);
 
@@ -105,9 +83,10 @@ async function getAuthUserId(stdRequest: Request, env: Environment): Promise<str
             return authState.toAuth().userId;
         } else {
             console.warn("[Worker] Auth: Request not signed in. Status:", authState.status, "Reason:", authState.reason, "Message:", authState.message);
-            if (!authHeader) console.warn("[Worker] Auth: Detail - Authorization header was missing.");
-            else if (!authHeader.startsWith('Bearer ')) console.warn("[Worker] Auth: Detail - Authorization header not Bearer.");
-            else if (headerToken) console.warn("[Worker] Auth: Detail - Bearer token was present but deemed invalid by Clerk.");
+            const authHeader = stdRequest.headers.get('Authorization');
+            if (!authHeader) console.warn("[Worker] Auth: Detail - Authorization header was missing from the original request.");
+            else if (!authHeader.startsWith('Bearer ')) console.warn("[Worker] Auth: Detail - Authorization header was present but not 'Bearer ' type.");
+            else console.warn("[Worker] Auth: Detail - Bearer token was present but Clerk deemed it invalid or session expired.");
             return null;
         }
 
@@ -126,7 +105,7 @@ const generateShareableBoardId = (): string => {
     return `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
-const { preflight, corsify } = cors({ origin: '*', allowHeaders: 'Authorization, Content-Type' }); // Ensure Authorization is allowed
+const { preflight, corsify } = cors({ origin: '*', allowHeaders: 'Authorization, Content-Type' });
 
 const router: RouterType<AuthenticatedRequest, [Environment, ExecutionContext]> = AutoRouter<AuthenticatedRequest, [Environment, ExecutionContext]>({
   before: [preflight],
@@ -138,13 +117,11 @@ const router: RouterType<AuthenticatedRequest, [Environment, ExecutionContext]> 
 });
 
 const withAuth = async (request: AuthenticatedRequest, env: Environment, ctx: ExecutionContext) => {
-    // The 'request' object here is what itty-router provides, which should be compatible
-    // with the standard Fetch API Request for its core properties (headers, url, method).
     const userId = await getAuthUserId(request, env);
     if (!userId) {
         return error(401, { error: 'Unauthorized: Invalid or missing token.' });
     }
-    request.userId = userId; // Assign to our extended AuthenticatedRequest
+    request.userId = userId;
 };
 
 // --- API Routes for Board Metadata ---
@@ -234,7 +211,7 @@ router.put('/api/boards/:boardId', withAuth, async (request, env) => {
     }
 });
 
-// --- Existing Routes (ensure these don't need `withAuth` unless intended) ---
+// --- Existing Routes ---
 router.get('/connect/:roomId', (request, env: Environment) => {
     const roomId = request.params.roomId;
     if (!roomId) {
@@ -244,7 +221,7 @@ router.get('/connect/:roomId', (request, env: Environment) => {
     try {
         const id = env.TLDRAW_DURABLE_OBJECT.idFromName(roomId);
         const stub = env.TLDRAW_DURABLE_OBJECT.get(id);
-        return stub.fetch(request as unknown as Request); // Pass the raw Request to DO fetch
+        return stub.fetch(request as unknown as Request);
     } catch (e: any) {
         console.error("[Worker] Error forwarding to DO for /connect:", e);
         if (e.message?.includes('binding') || e.message?.includes('TLDRAW_DURABLE_OBJECT')) {
@@ -260,7 +237,6 @@ router.get('/connect/:roomId', (request, env: Environment) => {
 
 export default {
     async fetch(request: Request, env: Environment, ctx: ExecutionContext): Promise<Response> {
-        // The `request` received here is the standard Fetch API Request.
         return router.fetch(request, env, ctx)
           .catch(err => {
             console.error("[Worker] Uncaught error in fetch handler:", err);
