@@ -1,28 +1,22 @@
-import { handleUnfurlRequest } from 'cloudflare-workers-unfurl'
-// Import json helper from itty-router
-import { AutoRouter, cors, error, IRequest, json } from 'itty-router'
-// Import Clerk Backend SDK
-import { createClerkClient } from '@clerk/backend';
-import { handleAssetDownload, handleAssetUpload } from './assetUploads'
-import { Environment } from './types'
-// Import RoomData type (adjust path if necessary, assuming it's colocated or aliased)
-// If using path aliases defined in tsconfig.json, ensure they resolve correctly in the worker context.
-// Using relative path for potentially better worker compatibility:
+// File: Jynkone/branc/branc-35acf07df2bc3fdbf1d7d97ee2c139d0fcf9291a/worker/worker.ts
+import { handleUnfurlRequest } from 'cloudflare-workers-unfurl';
+import { AutoRouter, cors, error, IRequest, json, RouterType } from 'itty-router';
+import { createClerkClient, ClerkClient } from '@clerk/backend'; // Import ClerkClient
+import { handleAssetDownload, handleAssetUpload } from './assetUploads';
+import { Environment } from './types';
 import type { RoomData } from '../components/canvas/hooks/useBoardManager';
 
-// Make sure our sync durable object is made available to cloudflare
-export { TldrawDurableObject } from './TldrawDurableObject'
+export { TldrawDurableObject } from './TldrawDurableObject';
 
 // --- Helper functions for KV ---
 async function getUserBoards(kv: KVNamespace, userId: string): Promise<RoomData[]> {
     const boardsJson = await kv.get(`user-boards:${userId}`);
-    // Add basic validation in case KV data is corrupted
     try {
         const boards = boardsJson ? JSON.parse(boardsJson) : [];
         return Array.isArray(boards) ? boards : [];
     } catch (e) {
-        console.error(`Failed to parse boards for user ${userId}:`, e);
-        return []; // Return empty array on parsing error
+        console.error(`[Worker] KV: Failed to parse boards for user ${userId}:`, e);
+        return [];
     }
 }
 
@@ -31,103 +25,146 @@ async function saveUserBoards(kv: KVNamespace, userId: string, boards: RoomData[
 }
 
 // --- Clerk Authentication Logic ---
-// Helper to get a Clerk client instance, throws if key is missing
-const getClerkClientInstance = (secretKey: string | undefined) => {
+const getClerkClientInstance = (secretKey: string | undefined): ClerkClient | null => {
     if (!secretKey) {
-        console.error("CLERK_SECRET_KEY environment variable is not set!");
-        throw new Error("Server authentication configuration error: Clerk secret key not configured.");
+        return null;
     }
-    // Assuming createClerkClient is correctly imported and returns the expected type
-    return createClerkClient({ secretKey });
+    try {
+        return createClerkClient({ secretKey });
+    } catch (e) {
+        console.error("[Worker] Auth: Error creating Clerk client instance:", e);
+        return null;
+    }
 };
 
-// Function to get validated userId from request using Clerk token
-async function getAuthUserId(request: IRequest, env: Environment): Promise<string | null> {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.log("No or invalid Authorization header found");
-        return null; // No token provided
+export interface AuthenticatedRequest extends IRequest {
+    userId?: string;
+    // itty-router's IRequest is typically compatible with the standard Request,
+    // but this interface helps if we add custom properties via middleware.
+}
+
+// Corrected getAuthUserId function
+async function getAuthUserId(stdRequest: Request, env: Environment): Promise<string | null> {
+    // Note: stdRequest here is the standard Fetch API Request object.
+    console.log(`[Worker] getAuthUserId: Processing request to ${stdRequest.url}`);
+
+    if (!env.CLERK_SECRET_KEY) {
+        console.log("[Worker] Auth: CLERK_SECRET_KEY not set. Defaulting to 'anonymous-dev-user'.");
+        const devUserId = stdRequest.headers.get('X-Dev-User-Id');
+        if (devUserId) {
+            console.log(`[Worker] Auth: Using X-Dev-User-Id header: ${devUserId}`);
+            return devUserId;
+        }
+        return 'anonymous-dev-user';
     }
 
-    const token = authHeader.substring(7); // Remove "Bearer " prefix
+    const clerk = getClerkClientInstance(env.CLERK_SECRET_KEY);
+    if (!clerk) {
+        console.error("[Worker] Auth: Clerk client instance is null (CLERK_SECRET_KEY was set but instance failed).");
+        return null;
+    }
+
+    const authHeader = stdRequest.headers.get('Authorization');
+    const headerToken = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.substring(7) : undefined;
+
+    // if (headerToken) {
+    //     console.log("[Worker] Auth: Extracted Bearer token (first 20 chars):", headerToken.substring(0, 20) + "...");
+    // } else {
+    //     console.log("[Worker] Auth: Authorization header missing or not Bearer type.");
+    // }
 
     try {
-        // Get the client instance; this will throw if key is missing
-        const clerk = getClerkClientInstance(env.CLERK_SECRET_KEY);
+        // Define the options object for authenticateRequest.
+        // The type for this options object is not always explicitly exported as 'ClerkMiddlewareOptions'.
+        // We can define it based on the known properties.
+        const authOptions: {
+            secretKey?: string;
+            headerToken?: string;
+            loadUser?: boolean;
+            loadSession?: boolean;
+            // Add other potential options based on Clerk documentation if needed
+        } = {
+            secretKey: env.CLERK_SECRET_KEY, // Often good to pass for clarity/overriding client's initial key
+        };
 
-        // Verify the token using Clerk SDK
-        // Ensure 'verifyToken' exists on the type returned by createClerkClient
-        // If TS still complains, there might be an issue with @clerk/backend types
-        // Explicitly cast to ClerkClient type if necessary, though ideally types should resolve
-        const claims = await (clerk as any).verifyToken(token); // Using 'as any' temporarily if ClerkClient type doesn't work
-        console.log("Token verified successfully for sub:", claims.sub);
-        return claims.sub; // 'sub' usually holds the userId
+        if (headerToken) {
+            authOptions.headerToken = headerToken;
+        }
+        // If you also want to support cookie-based sessions for some reason (less common for API workers)
+        // const cookieToken = cookies(stdRequest.headers.get('Cookie') || '').get('__session');
+        // if (cookieToken) authOptions.cookieToken = cookieToken;
+
+
+        // Pass the standard Request object as the first argument, and options as the second.
+        const authState = await clerk.authenticateRequest(stdRequest, authOptions);
+        
+        console.log("[Worker] Auth: clerk.authenticateRequest completed. Status:", authState.status);
+
+        if (authState.status === 'signed-in' && authState.toAuth().userId) {
+            console.log("[Worker] Auth: Request authenticated successfully. UserID:", authState.toAuth().userId);
+            return authState.toAuth().userId;
+        } else {
+            console.warn("[Worker] Auth: Request not signed in. Status:", authState.status, "Reason:", authState.reason, "Message:", authState.message);
+            if (!authHeader) console.warn("[Worker] Auth: Detail - Authorization header was missing.");
+            else if (!authHeader.startsWith('Bearer ')) console.warn("[Worker] Auth: Detail - Authorization header not Bearer.");
+            else if (headerToken) console.warn("[Worker] Auth: Detail - Bearer token was present but deemed invalid by Clerk.");
+            return null;
+        }
+
     } catch (err: any) {
-        // Catch errors from both getClerkClientInstance and verifyToken
-        console.error("Clerk authentication failed:", err.message);
-        return null; // Token is invalid, expired, or config error
+        console.error("[Worker] Auth: EXCEPTION during clerk.authenticateRequest:", err.message, err.stack);
+        if (err.clerkError && err.errors) {
+             console.error("[Worker] Auth: Clerk error details:", JSON.stringify(err.errors));
+        } else if (err.clerkError) {
+            console.error("[Worker] Auth: Clerk error (no further details):", err);
+        }
+        return null;
     }
 }
 
-
-// --- Generate Shareable ID ---
 const generateShareableBoardId = (): string => {
     return `shared-board-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
+const { preflight, corsify } = cors({ origin: '*', allowHeaders: 'Authorization, Content-Type' }); // Ensure Authorization is allowed
 
-// We use itty-router with CORS enabled
-const { preflight, corsify } = cors({ origin: '*' })
-// Update router type to include Environment and ExecutionContext for handlers
-const router = AutoRouter<IRequest, [Environment, ExecutionContext]>({
+const router: RouterType<AuthenticatedRequest, [Environment, ExecutionContext]> = AutoRouter<AuthenticatedRequest, [Environment, ExecutionContext]>({
   before: [preflight],
   finally: [corsify],
-  catch: (e) => {
-    console.error(e)
-    return error(e)
+  catch: (e, request) => {
+    console.error(`[Worker] Router error for ${request.method} ${request.url}:`, e);
+    return error(500, { message: "Internal Router Error", detail: e instanceof Error ? e.message : String(e) });
   },
-})
+});
 
-// --- Authentication Middleware (now async) ---
-const withAuth = async (request: IRequest, env: Environment, ctx: ExecutionContext) => {
-    // Check if CLERK_SECRET_KEY is configured before proceeding
-    if (!env.CLERK_SECRET_KEY) {
-        console.error("Authentication check skipped: CLERK_SECRET_KEY is not configured.");
-        return error(500, "Server authentication configuration error.");
-    }
-
-    const userId = await getAuthUserId(request, env); // Await the async verification
+const withAuth = async (request: AuthenticatedRequest, env: Environment, ctx: ExecutionContext) => {
+    // The 'request' object here is what itty-router provides, which should be compatible
+    // with the standard Fetch API Request for its core properties (headers, url, method).
+    const userId = await getAuthUserId(request, env);
     if (!userId) {
-        return error(401, 'Unauthorized: Invalid or missing token.');
+        return error(401, { error: 'Unauthorized: Invalid or missing token.' });
     }
-    // Attach userId to the request object for downstream handlers
-    request.userId = userId;
-    // If valid, proceed to the next handler (the actual route logic)
+    request.userId = userId; // Assign to our extended AuthenticatedRequest
 };
 
-
-// --- NEW API Routes for Board Metadata ---
-
-// GET /api/boards - Fetch user's boards
+// --- API Routes for Board Metadata ---
 router.get('/api/boards', withAuth, async (request, env) => {
-    const userId = request.userId!; // userId is guaranteed by withAuth
+    const userId = request.userId!;
+    console.log(`[Worker] GET /api/boards for userId: ${userId}`);
     try {
         const boards = await getUserBoards(env.BOARD_METADATA, userId);
-        // Optional: Ensure default board exists if not found
-        // const defaultBoardId = `user-${userId}-default-board`;
-        // if (!boards.some(b => b.id === defaultBoardId)) { ... }
-        return json(boards); // itty-router's json helper sets content-type
+        return json(boards);
     } catch (err) {
-        console.error("Error fetching boards:", err);
-        return error(500, 'Internal Server Error');
+        console.error(`[Worker] Error fetching boards for user ${userId}:`, err);
+        return error(500, 'Internal Server Error fetching boards');
     }
 });
 
-// POST /api/boards - Create a new board
 router.post('/api/boards', withAuth, async (request, env) => {
     const userId = request.userId!;
+    console.log(`[Worker] POST /api/boards for userId: ${userId}`);
     try {
-        const body = await request.json?.(); // Use optional chaining for safety
+        const body = await request.json?.();
         const name = body?.name;
 
         if (!name || typeof name !== 'string' || !name.trim()) {
@@ -138,29 +175,26 @@ router.post('/api/boards', withAuth, async (request, env) => {
         const newBoard: RoomData = {
             id: generateShareableBoardId(),
             name: name.trim(),
-            isShared: true, // New boards are shareable by default
+            isShared: true,
             owner: userId,
             createdAt: Date.now(),
         };
 
         const updatedBoards = [...currentBoards, newBoard];
         await saveUserBoards(env.BOARD_METADATA, userId, updatedBoards);
-
-        return json(newBoard, { status: 201 }); // Return created board
-    } catch (err) {
-        console.error("Error creating board:", err);
-        if (err instanceof SyntaxError) {
-            return error(400, 'Bad Request: Invalid JSON');
-        }
-        return error(500, 'Internal Server Error');
+        console.log(`[Worker] Created new board "${newBoard.name}" (ID: ${newBoard.id}) for userId: ${userId}`);
+        return json(newBoard, { status: 201 });
+    } catch (err: any) {
+        console.error(`[Worker] Error creating board for user ${userId}:`, err);
+        if (err instanceof SyntaxError) return error(400, 'Bad Request: Invalid JSON');
+        return error(500, 'Internal Server Error creating board');
     }
 });
 
-// PUT /api/boards/:boardId - Rename a board
 router.put('/api/boards/:boardId', withAuth, async (request, env) => {
     const userId = request.userId!;
     const boardId = request.params.boardId;
-
+    console.log(`[Worker] PUT /api/boards/${boardId} for userId: ${userId}`);
     try {
         const body = await request.json?.();
         const name = body?.name;
@@ -175,9 +209,9 @@ router.put('/api/boards/:boardId', withAuth, async (request, env) => {
         let forbidden = false;
         const updatedBoards = currentBoards.map(board => {
             if (board.id === boardId) {
-                // Allow renaming if user is owner OR if owner is 'unknown' (board added via link)
-                if (board.owner !== userId && board.owner !== 'unknown') {
-                    forbidden = true; // Mark as forbidden, handle after map
+                if (board.owner !== userId && board.owner !== 'unknown' && userId !== 'anonymous-dev-user') {
+                    console.warn(`[Worker] Forbidden attempt to rename board. User ${userId} does not own board ${boardId} (owner: ${board.owner})`);
+                    forbidden = true;
                 }
                 boardFound = true;
                 return { ...board, name: newName };
@@ -185,71 +219,52 @@ router.put('/api/boards/:boardId', withAuth, async (request, env) => {
             return board;
         });
 
-        if (forbidden) {
-            return error(403, 'Forbidden: You do not own this board');
-        }
-        if (!boardFound) {
-            return error(404, 'Not Found: Board ID does not exist');
-        }
+        if (forbidden) return error(403, 'Forbidden: You do not own this board');
+        if (!boardFound) return error(404, 'Not Found: Board ID does not exist for renaming');
 
         await saveUserBoards(env.BOARD_METADATA, userId, updatedBoards);
         const updatedBoard = updatedBoards.find(b => b.id === boardId);
-        return json(updatedBoard); // Return updated board
+        console.log(`[Worker] Renamed board ${boardId} to "${newName}" for userId: ${userId}`);
+        return json(updatedBoard);
 
-    } catch (err) {
-        console.error(`Error renaming board ${boardId}:`, err);
-        if (err instanceof SyntaxError) {
-            return error(400, 'Bad Request: Invalid JSON');
-        }
-        return error(500, 'Internal Server Error');
+    } catch (err: any) {
+        console.error(`[Worker] Error renaming board ${boardId} for user ${userId}:`, err);
+        if (err instanceof SyntaxError) return error(400, 'Bad Request: Invalid JSON');
+        return error(500, 'Internal Server Error renaming board');
     }
 });
 
-
-// --- Existing Routes ---
-
-// Requests to /connect are routed to the Durable Object
-// IMPORTANT: This route likely should NOT have `withAuth` unless the DO connection itself needs it
+// --- Existing Routes (ensure these don't need `withAuth` unless intended) ---
 router.get('/connect/:roomId', (request, env: Environment) => {
     const roomId = request.params.roomId;
     if (!roomId) {
-        return error(400, 'Missing roomId');
+        return error(400, 'Missing roomId for /connect');
     }
+    console.log(`[Worker] GET /connect/${roomId}`);
     try {
-        // Get the Durable Object stub. ID based on roomId ensures requests for the same
-        // board go to the same DO instance.
-        // Ensure the DO binding name matches wrangler.toml ('TLDRAW_DURABLE_OBJECT')
         const id = env.TLDRAW_DURABLE_OBJECT.idFromName(roomId);
         const stub = env.TLDRAW_DURABLE_OBJECT.get(id);
-        // Forward the request to the Durable Object's fetch handler
-        // Pass the original request object directly
-        return stub.fetch(request);
+        return stub.fetch(request as unknown as Request); // Pass the raw Request to DO fetch
     } catch (e: any) {
-        console.error("Error forwarding to DO:", e);
-        // Handle cases like class_name not found in wrangler.toml
+        console.error("[Worker] Error forwarding to DO for /connect:", e);
         if (e.message?.includes('binding') || e.message?.includes('TLDRAW_DURABLE_OBJECT')) {
              return error(500, `Server configuration error related to Durable Object binding: ${e.message}`);
         }
-        return error(500, 'Internal Server Error connecting to board');
+        return error(500, 'Internal Server Error connecting to board via DO');
     }
 })
-
-  // Assets can be uploaded to the bucket
   .post('/uploads/:uploadId', handleAssetUpload)
-
-  // They can be retrieved from the bucket too
   .get('/uploads/:uploadId', handleAssetDownload)
-
-  // Bookmarks need to extract metadata
   .get('/unfurl', handleUnfurlRequest)
+  .all('*', (request) => error(404, `Not Found in Worker: ${request.method} ${request.url}`));
 
-  // Catch-all for other routes
-  .all('*', () => error(404, 'Not Found.'));
-
-// Export the main fetch handler for Cloudflare
 export default {
     async fetch(request: Request, env: Environment, ctx: ExecutionContext): Promise<Response> {
-        // Pass env and ctx to the router
-        return router.fetch(request, env, ctx);
+        // The `request` received here is the standard Fetch API Request.
+        return router.fetch(request, env, ctx)
+          .catch(err => {
+            console.error("[Worker] Uncaught error in fetch handler:", err);
+            return new Response("Internal Server Error", { status: 500 });
+          });
     },
 };
