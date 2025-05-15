@@ -1,11 +1,10 @@
 // components/canvas/Canvas.tsx
 "use client";
 
-import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   Editor,
-  TLStoreWithStatus, // We'll get these from SyncedTldrawCanvas render prop
-  // Imports needed for uiOverrides, staticComponents, etc.
+  TLStoreWithStatus,
   DefaultKeyboardShortcutsDialog,
   DefaultKeyboardShortcutsDialogContent,
   DefaultToolbar,
@@ -17,16 +16,16 @@ import {
   TldrawUiMenuItem,
   useIsToolSelected,
   useTools,
-  defaultShapeUtils, // <<< IMPORT THIS
+  defaultShapeUtils,
 } from "tldraw";
 import "tldraw/tldraw.css";
 
 // Import your custom utils and tools
 import { chatTool } from "@/tools/ChatTool";
-import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil"; // <<< IMPORT THIS
+import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
 
 // Import Hooks
-import { useBoardManager, RoomData } from './hooks/useBoardManager';
+import { useBoardManager } from './hooks/useBoardManager';
 import { usePageSelector } from './hooks/usePageSelector';
 import { useShareDialog } from './hooks/useShareDialog';
 import { useDynamicPositioning } from './hooks/useDynamicPositioning';
@@ -37,7 +36,7 @@ import { CanvasUI } from './CanvasUI';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
-// Constants for Tldraw setup
+// Constants for Tldraw setup - define these outside the component
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
     tools.chat = {
@@ -51,11 +50,7 @@ const uiOverrides: TLUiOverrides = {
   },
 };
 
-// NOTE: If useTools() and useIsToolSelected() are used inside these component definitions,
-// they must be called within a component that is a child of <Tldraw />.
-// It's generally safer to define these more complex components where they have access to Tldraw's context,
-// or pass the necessary state/callbacks to them.
-// For this example, we keep them here, but ensure CanvasUI correctly provides the Tldraw context.
+// Define static components outside the component to prevent recreation
 const staticComponents: TLComponents = {
   Toolbar: (props) => {
     const tools = useTools();
@@ -100,6 +95,9 @@ const getFormattedBoardId = (boardId: string) => {
   return boardId.replace(/^(user-)+/, 'user-');
 };
 
+// Define a shared array of shape utils that can be exported and reused
+export const getCustomShapeUtils = () => [ChatShapeUtil, ...defaultShapeUtils];
+
 export function Canvas({ userId }: { userId: string }) {
   const boardManager = useBoardManager(userId);
   const { isLoading, currentRoom, availableRooms, selectBoard, createNewBoard, renameBoard, ensureBoardIsShareable, error: boardManagerError } = boardManager;
@@ -111,15 +109,20 @@ export function Canvas({ userId }: { userId: string }) {
   const { selectorPosition } = useDynamicPositioning(tldrawContainerRef);
   const [editor, setEditor] = useState<Editor | null>(null);
 
+  // IMPORTANT: Always use a memoized version of complex objects/arrays
+  const customShapeUtilsArray = useMemo(() => getCustomShapeUtils(), []);
+
   const syncUri = useMemo(() => {
     if (!currentRoom || !currentRoom.id) return '';
     const formattedId = getFormattedBoardId(currentRoom.id);
     return `${WORKER_URL}/connect/${formattedId}`;
   }, [currentRoom]);
 
+  // Early returns for loading states and errors
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen">Loading Canvas Data...</div>;
   }
+  
   if (boardManagerError) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -131,6 +134,7 @@ export function Canvas({ userId }: { userId: string }) {
       </div>
     );
   }
+  
   if (!currentRoom || !syncUri) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -143,12 +147,6 @@ export function Canvas({ userId }: { userId: string }) {
     );
   }
 
-  // Define customShapeUtils here as it uses ChatShapeUtil and defaultShapeUtils
-  const customShapeUtilsArray = useMemo(() => {
-    return [ChatShapeUtil, ...defaultShapeUtils];
-  }, []);
-
-
   return (
     <SyncedTldrawCanvas
       key={currentRoom.id}
@@ -157,6 +155,7 @@ export function Canvas({ userId }: { userId: string }) {
       initialCurrentRoomId={currentRoom.id}
       editorInstance={editor}
       onEditorMount={setEditor}
+      customShapeUtils={customShapeUtilsArray} // Pass the shape utils from parent
     >
       {(store: TLStoreWithStatus, _editorFromSync: Editor | null, _onEditorMountFromSync: (editor: Editor) => void) => (
         <CanvasUI

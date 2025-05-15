@@ -1,4 +1,4 @@
-import React, { RefObject, useEffect } from 'react'; // Import useEffect
+import React, { RefObject, useEffect, useMemo } from 'react';
 import {
   Tldraw,
   TLComponents,
@@ -6,35 +6,34 @@ import {
   TLUiAssetUrlOverrides,
   Editor,
   TLStoreWithStatus,
-  HistoryEntry, // Import HistoryEntry type
-  TLRecord, // Import TLRecord type
-  TLShape, // Import TLShape type
-  TLShapeId, // Import TLShapeId type
-  TLBinding // Import TLBinding type
+  HistoryEntry,
+  TLRecord,
+  TLShape,
+  TLShapeId,
+  TLBinding
 } from "tldraw";
 import { SignOutButton } from "@clerk/nextjs";
-import { Button } from "@/components/ui/button"; // Reverted to alias path
-import { getBookmarkPreview } from "@/lib/getBookmarkPreview"; // Reverted to alias path
-import { PageSelector } from './PageSelector'; // Path is correct
-import { ShareDialogComponent } from './ShareDialogComponent'; // Path is correct
-import type { useBoardManager } from './hooks/useBoardManager'; // Path is correct
-import type { usePageSelector } from './hooks/usePageSelector'; // Path is correct
-import type { useShareDialog } from './hooks/useShareDialog'; // Path is correct
-// Import toast if needed later: import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { getBookmarkPreview } from "@/lib/getBookmarkPreview";
+import { PageSelector } from './PageSelector';
+import { ShareDialogComponent } from './ShareDialogComponent';
+import type { useBoardManager } from './hooks/useBoardManager';
+import type { usePageSelector } from './hooks/usePageSelector';
+import type { useShareDialog } from './hooks/useShareDialog';
 
 // Define the props expected by CanvasUI
 interface CanvasUIProps {
-  userId: string; // Keep userId if needed for any direct rendering logic, though likely not
+  userId: string;
   store: TLStoreWithStatus;
-  shapeUtils: any[]; // Consider defining a more specific type if possible
-  tools: any[]; // Consider defining a more specific type if possible
+  shapeUtils: any[]; // Array of shape utils
+  tools: any[]; // Array of custom tools
   overrides: TLUiOverrides;
   components: TLComponents;
   assetUrls: TLUiAssetUrlOverrides;
-  editor: Editor | null; // Receive editor instance
-  onEditorMount: (editor: Editor) => void; // Receive mount callback
+  editor: Editor | null;
+  onEditorMount: (editor: Editor) => void;
   tldrawContainerRef: RefObject<HTMLDivElement>;
-  selectorPosition: number; // Reverted back to number type
+  selectorPosition: number;
   boardManager: ReturnType<typeof useBoardManager>;
   pageSelectorHook: ReturnType<typeof usePageSelector>;
   shareDialogHook: ReturnType<typeof useShareDialog>;
@@ -47,33 +46,31 @@ export function CanvasUI({
   overrides,
   components,
   assetUrls,
-  editor, // Destructure editor
-  onEditorMount, // Destructure mount callback
+  editor,
+  onEditorMount,
   tldrawContainerRef,
   selectorPosition,
   boardManager,
   pageSelectorHook,
   shareDialogHook,
 }: CanvasUIProps) {
+  const { currentRoom, availableRooms } = boardManager;
 
-  const { currentRoom, availableRooms } = boardManager; // Destructure needed state
+  // Define helpers for type checking outside the effect to avoid re-creation
+  const isShape = (record: TLRecord | undefined): record is TLShape => {
+    return typeof record === 'object' && record !== null && 'typeName' in record && record.typeName === 'shape';
+  };
+
+  const isArrowBinding = (record: TLRecord | undefined): record is TLBinding => {
+    return typeof record === 'object' && record !== null && 'typeName' in record && record.typeName === 'binding' && record.type === 'arrow';
+  };
+
+  // Store partial connections using ref to maintain state across renders
+  const partialConnectionsRef = React.useRef(new Map<TLShapeId, { start?: TLShapeId, end?: TLShapeId }>());
 
   // Effect to add listener for manual arrow connections (Binding-based)
   useEffect(() => {
     if (!editor) return;
-
-    // Helper to check if a record is a shape
-    const isShape = (record: TLRecord | undefined): record is TLShape => {
-      return typeof record === 'object' && record !== null && 'typeName' in record && record.typeName === 'shape';
-    };
-
-    // Helper to check if a record is an arrow binding
-    const isArrowBinding = (record: TLRecord | undefined): record is TLBinding => {
-       return typeof record === 'object' && record !== null && 'typeName' in record && record.typeName === 'binding' && record.type === 'arrow';
-    };
-
-    // Store partial connections keyed by arrowId
-    const partialConnections = new Map<TLShapeId, { start?: TLShapeId, end?: TLShapeId }>();
 
     const handleChanges = (entry: HistoryEntry<TLRecord>) => {
       // Check added and updated bindings
@@ -82,7 +79,6 @@ export function CanvasUI({
       Object.values(entry.changes.updated).forEach(([_, next]) => {
         changedRecords[next.id] = next;
       });
-
 
       Object.values(changedRecords).forEach(record => {
         if (!isArrowBinding(record)) return;
@@ -97,6 +93,7 @@ export function CanvasUI({
         const terminal = binding.props.terminal; // Now safe to access
 
         // Update partial connection info
+        let partialConnections = partialConnectionsRef.current;
         let connection = partialConnections.get(arrowId) ?? {};
         if (terminal === 'start') {
           connection.start = connectedShapeId;
@@ -122,47 +119,40 @@ export function CanvasUI({
               isShape(targetShape) && targetShape.type === 'chat' &&
               typeof targetShape.props === 'object' && targetShape.props !== null)
           {
-              let currentParentId: string | undefined = undefined;
-              let hasParent = false;
-              // Check if parentId exists and is non-empty
-              if ('parentId' in targetShape.props &&
-                  targetShape.props.parentId !== undefined &&
-                  targetShape.props.parentId !== '')
-              {
-                  currentParentId = targetShape.props.parentId as string | undefined;
-                  hasParent = true;
-              }
+            let currentParentId: string | undefined = undefined;
+            let hasParent = false;
+            // Check if parentId exists and is non-empty
+            if ('parentId' in targetShape.props &&
+                targetShape.props.parentId !== undefined &&
+                targetShape.props.parentId !== '')
+            {
+              currentParentId = targetShape.props.parentId as string | undefined;
+              hasParent = true;
+            }
 
-              if (!hasParent) {
-                console.log(`CanvasUI Listener (Binding): Manually connecting ${targetShapeId} to parent ${sourceShapeId} via arrow ${arrowId}`);
-                editor.batch(() => {
-                  editor.updateShape({
-                    id: targetShapeId,
-                    type: 'chat',
-                    props: { parentId: sourceShapeId },
-                  });
+            if (!hasParent) {
+              console.log(`CanvasUI Listener (Binding): Manually connecting ${targetShapeId} to parent ${sourceShapeId} via arrow ${arrowId}`);
+              editor.batch(() => {
+                editor.updateShape({
+                  id: targetShapeId,
+                  type: 'chat',
+                  props: { parentId: sourceShapeId },
                 });
-                // toast("Context linked successfully!"); // Add toast notification here if sonner is installed
-              }
+              });
+            }
           }
         }
       });
-
-      // Handle binding deletion (optional: clear parentId if arrow is removed?)
-      // if (entry.changes.removed) { ... }
-
-    }; // End handleChanges
+    };
 
     const disposer = editor.store.listen(handleChanges, { source: 'user', scope: 'session' });
 
     return () => {
       disposer();
     };
-  }, [editor]);
-
+  }, [editor]); // Only depend on editor to avoid unnecessary re-subscriptions
 
   return (
-    // Add ref to the main container for dynamic positioning hook
     <div ref={tldrawContainerRef} style={{ position: "fixed", inset: 0 }}>
       <Tldraw
         store={store}
@@ -178,23 +168,18 @@ export function CanvasUI({
           editorInstance.registerExternalAssetHandler('url', getBookmarkPreview);
           // Call the mount callback passed from parent
           onEditorMount(editorInstance);
-          // Log store initialization (optional)
-          if (currentRoom) {
-            // console.log("TLDraw mounted for room:", currentRoom.id);
-          }
-          // No need to call updateSelectorPosition here, the hook handles it
         }}
       />
 
       {/* Page Selector using the new component and dynamic positioning */}
-      {currentRoom && ( // Only render PageSelector if there's a current room
+      {currentRoom && (
         <div
           className="tldraw-page-selector-container"
           style={{
             position: "absolute",
-            left: `${selectorPosition}px`, // Use number directly
-            top: "0px", // Adjust top position if needed based on tldraw UI
-            zIndex: 3000 // Ensure it's above tldraw UI elements
+            left: `${selectorPosition}px`, 
+            top: "0px",
+            zIndex: 3000
           }}
         >
           <PageSelector
@@ -205,15 +190,14 @@ export function CanvasUI({
         </div>
       )}
 
-
       {/* Header Buttons (Share, Sign Out) */}
       <div className="absolute top-1 right-1 flex gap-1" style={{ zIndex: 2000 }}>
-        {currentRoom && ( // Only show Share button if there's a room
+        {currentRoom && (
            <Button
              size="sm"
              variant="outline"
-             onClick={shareDialogHook.handleOpenShareDialog} // Use handler from hook
-             className="match-height" // Keep existing style
+             onClick={shareDialogHook.handleOpenShareDialog}
+             className="match-height"
            >
              Share
            </Button>
@@ -227,8 +211,6 @@ export function CanvasUI({
 
       {/* Share Dialog using the new component */}
       <ShareDialogComponent shareDialogHook={shareDialogHook} />
-
-      {/* Global styles removed from here */}
     </div>
   );
 }

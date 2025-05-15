@@ -3,25 +3,21 @@
 
 import React, { useMemo, useState, useEffect, ReactNode } from 'react';
 import { useSync } from '@tldraw/sync';
-import "tldraw/tldraw.css"; // Keep tldraw.css import
+import "tldraw/tldraw.css";
 import { multiplayerAssetStore } from "@/lib/multiplayerAssetStore";
-import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
-import { defaultShapeUtils, Editor, TLStoreWithStatus } from "tldraw";
-
-// Import UI for error display
+import { defaultShapeUtils, Editor, TLStoreWithStatus } from "tldraw"; 
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import type { RoomData } from './hooks/useBoardManager';
-
+import { getCustomShapeUtils } from './Canvas'; // Import from Canvas.tsx
 
 interface SyncedTldrawCanvasProps {
   syncUri: string;
-  initialCurrentRoomName: string; // For error messages
-  initialCurrentRoomId: string; // For error messages
+  initialCurrentRoomName: string;
+  initialCurrentRoomId: string;
   children: (store: TLStoreWithStatus, editor: Editor | null, onEditorMount: (editor: Editor) => void) => ReactNode;
-  // Pass down onEditorMount and editor state from parent (Canvas.tsx)
   editorInstance: Editor | null;
   onEditorMount: (editor: Editor) => void;
+  customShapeUtils?: any[]; // Optional custom shape utils from parent
 }
 
 export function SyncedTldrawCanvas({
@@ -29,23 +25,26 @@ export function SyncedTldrawCanvas({
   initialCurrentRoomName,
   initialCurrentRoomId,
   children,
-  editorInstance, // Receive editor instance from Canvas.tsx
-  onEditorMount,  // Receive onEditorMount callback from Canvas.tsx
+  editorInstance,
+  onEditorMount,
+  customShapeUtils, // Use passed shape utils if available
 }: SyncedTldrawCanvasProps) {
-  const customShapeUtils = useMemo(() => {
-    return [ChatShapeUtil, ...defaultShapeUtils] as any;
-  }, []);
+  // Use the shape utils passed from parent or generate them
+  const shapeUtils = useMemo(() => {
+    return customShapeUtils || getCustomShapeUtils();
+  }, [customShapeUtils]);
+
+  // States for connection management
+  const [connectionFailedPermanently, setConnectionFailedPermanently] = useState(false);
+  const [currentConnectionAttempt, setCurrentConnectionAttempt] = useState(0);
+  const maxRetries = 3;
 
   console.log(`[SyncedTldrawCanvas] Initializing useSync with URI: ${syncUri}`);
   const store = useSync({
     uri: syncUri,
     assets: multiplayerAssetStore,
-    shapeUtils: customShapeUtils,
+    shapeUtils: shapeUtils,
   });
-
-  const [connectionFailedPermanently, setConnectionFailedPermanently] = useState(false);
-  const [currentConnectionAttempt, setCurrentConnectionAttempt] = useState(0);
-  const maxRetries = 3; // Retain retry logic
 
   // Effect for resetting connection state when syncUri changes
   useEffect(() => {
@@ -54,7 +53,7 @@ export function SyncedTldrawCanvas({
     setCurrentConnectionAttempt(0);
   }, [syncUri]);
 
-  // Effect for handling store status and retries (from your existing SyncedTldrawCanvas)
+  // Effect for handling store status and retries
   useEffect(() => {
     const successfullyConnectedStatus = 'synced-remote';
     const currentStatus = store.status;
@@ -66,9 +65,6 @@ export function SyncedTldrawCanvas({
         const retryDelay = 3000 * (currentConnectionAttempt + 1);
         const timer = setTimeout(() => {
           setCurrentConnectionAttempt(prev => prev + 1);
-          // Note: Forcing a re-sync might require more direct store manipulation if available,
-          // or simply letting useSync try again when dependencies change or on next render cycle.
-          // For now, changing state (currentConnectionAttempt) will cause a re-render.
         }, retryDelay);
         return () => clearTimeout(timer);
       } else if (!connectionFailedPermanently) {
@@ -79,8 +75,8 @@ export function SyncedTldrawCanvas({
       if (currentConnectionAttempt > 0 || connectionFailedPermanently) {
         console.log(`[SyncedTldrawCanvas] Successfully connected to URI: ${syncUri} after ${currentConnectionAttempt} attempt(s).`);
       }
-      setConnectionFailedPermanently(false); // Reset on successful connection
-      setCurrentConnectionAttempt(0); // Reset retries
+      setConnectionFailedPermanently(false);
+      setCurrentConnectionAttempt(0);
     } else {
       if (connectionFailedPermanently) {
         setConnectionFailedPermanently(false);
@@ -104,7 +100,6 @@ export function SyncedTldrawCanvas({
                 onClick={() => {
                   setConnectionFailedPermanently(false);
                   setCurrentConnectionAttempt(0);
-                  // Potentially trigger a re-fetch or re-init in the parent if needed
                 }}
               >
                 Try Again
