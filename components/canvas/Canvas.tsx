@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 /* components/canvas/Canvas.tsx */
 'use client';
 
@@ -15,27 +14,20 @@ import {
   DefaultToolbarContent,
   TldrawUiMenuItem,
 } from 'tldraw';
-
 import { SyncedTldrawCanvas } from './SyncedTldrawCanvas';
 import { CanvasUI } from './CanvasUI';
-
 import { chatTool } from '@/tools/ChatTool';
 import { ChatShapeUtil } from '@/components/chatshape/ChatShapeUtil';
-
 import { useBoardManager } from './hooks/useBoardManager';
 import { usePageSelector } from './hooks/usePageSelector';
 import { useShareDialog } from './hooks/useShareDialog';
 import { useDynamicPositioning } from './hooks/useDynamicPositioning';
 
-/* ------------------------------------------------------------------ */
-/* 1 · Custom shapes / tools                                           */
-/* ------------------------------------------------------------------ */
+/* 1 · Custom tools + shapes */
 export const getCustomShapeUtils = () => [ChatShapeUtil];
 const customTools = [chatTool];
 
-/* ------------------------------------------------------------------ */
-/* 2 · Add the Chat tool to the standard toolbar                       */
-/* ------------------------------------------------------------------ */
+/* 2 · Add Chat button to the toolbar */
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
     tools.chat = {
@@ -49,12 +41,13 @@ const uiOverrides: TLUiOverrides = {
   },
 };
 
-const Toolbar: TLComponents['Toolbar'] = () => {
+/* ----------  🔍  THIS BLOCK IS THE IMPORTANT BIT  ---------- */
+const Toolbar: TLComponents['Toolbar'] = (props) => {
   const tools = useTools();
   const isChatSelected = useIsToolSelected(tools.chat);
 
   return (
-    <DefaultToolbar>
+    <DefaultToolbar {...props}>
       {tools.chat && (
         <TldrawUiMenuItem {...tools.chat} isSelected={isChatSelected} />
       )}
@@ -62,15 +55,14 @@ const Toolbar: TLComponents['Toolbar'] = () => {
     </DefaultToolbar>
   );
 };
+/* ----------------------------------------------------------- */
 
 const components: TLComponents = {
   Toolbar,
   DebugPanel: null,
 };
 
-/* ------------------------------------------------------------------ */
-/* 3 · Helper to build the sync URL                                    */
-/* ------------------------------------------------------------------ */
+/* 3 · Helper to build sync URL */
 const WORKER_ROOT =
   (process.env.NEXT_PUBLIC_WORKER_URL ?? 'branc.ajeenkya29.workers.dev').replace(
     /^(?!https?:)/,
@@ -79,9 +71,7 @@ const WORKER_ROOT =
 const toRoomUrl = (id: string) =>
   `${WORKER_ROOT}/connect/${id.replace(/^user-*/, 'user-')}`;
 
-/* ------------------------------------------------------------------ */
-/* 4 · Main exported component                                         */
-/* ------------------------------------------------------------------ */
+/* 4 · Main exported component – unchanged below this line */
 export function Canvas({ userId }: { userId: string }) {
   const boardMgr = useBoardManager(userId);
   const {
@@ -104,7 +94,6 @@ export function Canvas({ userId }: { userId: string }) {
   });
   const shareHook = useShareDialog({ currentRoom, ensureBoardIsShareable });
 
-  /* page-selector positioning */
   const tlRef = useRef<HTMLDivElement>(null);
   const { selectorPosition } = useDynamicPositioning(tlRef);
 
@@ -115,7 +104,6 @@ export function Canvas({ userId }: { userId: string }) {
     [],
   );
 
-  /* loading / error UI */
   if (isLoading)
     return <div className="flex h-screen items-center justify-center">Loading…</div>;
   if (!currentRoom || error)
