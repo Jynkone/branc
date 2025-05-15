@@ -1,6 +1,7 @@
 // layout.tsx
 import type { Metadata } from "next";
 import "./globals.css";
+import "tldraw/tldraw.css";    // <-- NEW: ensure editor UI is styled
 import { Inter as FontSans } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 

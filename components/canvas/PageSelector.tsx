@@ -1,96 +1,77 @@
-import React from 'react';
-import { Pencil, Check, Plus } from 'lucide-react';
-import type { RoomData } from './hooks/useBoardManager'; // Adjusted path
-import type { usePageSelector } from './hooks/usePageSelector'; // Adjusted path
+// components/canvas/PageSelector.tsx
+'use client';
 
-// Props expected by the PageSelector component
-interface PageSelectorProps {
-  currentRoom: RoomData | null;
+import { Check, Pencil, Plus } from 'lucide-react';
+import type { RoomData } from './hooks/useBoardManager';
+import type { usePageSelector } from './hooks/usePageSelector';
+
+interface Props {
+  currentRoom: RoomData;
   availableRooms: RoomData[];
-  pageSelectorHook: ReturnType<typeof usePageSelector>; // Pass the hook's return value
+  pageSelectorHook: ReturnType<typeof usePageSelector>;
 }
 
 export function PageSelector({
   currentRoom,
   availableRooms,
-  pageSelectorHook,
-}: PageSelectorProps) {
-  const {
-    isMenuOpen,
-    isEditingBoardName,
-    newBoardName,
-    setNewBoardName,
-    toggleMenu,
-    handleStartEditing,
-    handleSaveName,
-    handleInputKeyDown,
-    handleInputBlur,
-    handleNewBoard,
-    handleSelectBoard,
-    menuRef,
-    boardNameInputRef,
-    boardButtonRef,
-  } = pageSelectorHook;
-
-  if (!currentRoom) {
-    // Render nothing or a placeholder if there's no current room yet
-    return null;
-  }
-
-  if (isEditingBoardName) {
+  pageSelectorHook: h,
+}: Props) {
+  if (h.isEditingBoardName) {
     return (
-      <div className="tldraw-page-selector">
-        <input
-          ref={boardNameInputRef}
-          value={newBoardName}
-          onChange={(e) => setNewBoardName(e.target.value)}
-          onBlur={handleInputBlur} // Use the blur handler from the hook
-          onKeyDown={handleInputKeyDown} // Use the keydown handler from the hook
-          className="tldraw-page-name-input" // Style defined in Canvas.tsx global styles
-        />
-      </div>
+      <input
+        ref={h.boardNameInputRef}
+        className="tldraw-page-name-input"
+        value={h.newBoardName}
+        onChange={(e) => h.setNewBoardName(e.target.value)}
+        onBlur={h.handleInputBlur}
+        onKeyDown={h.handleInputKeyDown}
+      />
     );
   }
 
   return (
     <div className="tldraw-page-selector">
-      <button
-        ref={boardButtonRef}
-        onClick={toggleMenu} // Use the toggle handler from the hook
-        className="tldraw-page-button" // Style defined in Canvas.tsx global styles
-      >
-        {currentRoom.name}
+      <button ref={h.boardButtonRef} className="tldraw-page-button" onClick={h.toggleMenu}>
+        {currentRoom.name} <span className="ml-1 text-xs">▾</span>
       </button>
 
-      {isMenuOpen && (
-        <div ref={menuRef} className="tldraw-pages-menu"> {/* Style defined in Canvas.tsx global styles */}
-          <div className="tldraw-pages-menu-header"> {/* Style defined in Canvas.tsx global styles */}
+      {h.isMenuOpen && (
+        <div ref={h.menuRef} className="tldraw-pages-menu">
+          <div className="tldraw-pages-menu-header">
             <span>Pages</span>
-            <div className="tldraw-pages-menu-actions"> {/* Style defined in Canvas.tsx global styles */}
-              <button onClick={handleStartEditing} className="tldraw-icon-button"> {/* Style defined in Canvas.tsx global styles */}
+            <div className="tldraw-pages-menu-actions">
+              <button
+                className="tldraw-icon-button"
+                onClick={h.handleStartEditing}
+                title="Rename board"
+              >
                 <Pencil size={14} />
               </button>
-              <button onClick={handleNewBoard} className="tldraw-icon-button"> {/* Style defined in Canvas.tsx global styles */}
+              <button
+                className="tldraw-icon-button"
+                onClick={h.handleNewBoard}
+                title="New board"
+              >
                 <Plus size={14} />
               </button>
             </div>
           </div>
-          <div className="tldraw-pages-menu-list"> {/* Style defined in Canvas.tsx global styles */}
+
+          <ul className="tldraw-pages-menu-list">
             {availableRooms.map((room) => (
-              <button
-                key={room.id}
-                onClick={() => handleSelectBoard(room.id)}
-                className={`tldraw-page-list-item ${currentRoom.id === room.id ? 'selected' : ''}`} // Style defined in Canvas.tsx global styles
-              >
-                {currentRoom.id === room.id && (
-                  <span className="tldraw-check-icon"><Check size={14} /></span> // Style defined in Canvas.tsx global styles
-                )}
-                {/* Placeholder for potential drag handle */}
-                <span className="tldraw-page-list-item-handle"></span> {/* Style defined in Canvas.tsx global styles */}
-                {room.name}
-              </button>
+              <li key={room.id}>
+                <button
+                  className={`tldraw-page-list-item ${
+                    room.id === currentRoom.id ? 'selected' : ''
+                  }`}
+                  onClick={() => h.handleSelectBoard(room.id)}
+                >
+                  {room.id === currentRoom.id && <Check className="h-3 w-3 mr-1" />}
+                  {room.name}
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
     </div>
