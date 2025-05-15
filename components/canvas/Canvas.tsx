@@ -1,143 +1,178 @@
-/* components/canvas/Canvas.tsx */
-'use client';
+// components/canvas/Canvas.tsx
+"use client";
 
-import { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
-  TLUiOverrides,
-  TLComponents,
-  useTools,
-  useIsToolSelected,
-  defaultShapeUtils,
   Editor,
   TLStoreWithStatus,
+  DefaultKeyboardShortcutsDialog,
+  DefaultKeyboardShortcutsDialogContent,
   DefaultToolbar,
   DefaultToolbarContent,
+  TLComponents,
+  TLUiOverrides,
+  DefaultMainMenu,
+  TLUiAssetUrlOverrides,
   TldrawUiMenuItem,
-} from 'tldraw';
-import { SyncedTldrawCanvas } from './SyncedTldrawCanvas';
-import { CanvasUI } from './CanvasUI';
-import { chatTool } from '@/tools/ChatTool';
-import { ChatShapeUtil } from '@/components/chatshape/ChatShapeUtil';
+  useIsToolSelected,
+  useTools,
+  defaultShapeUtils,
+} from "tldraw";
+import "tldraw/tldraw.css";
+
+// Import your custom utils and tools
+import { chatTool } from "@/tools/ChatTool";
+import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
+
+// Import Hooks
 import { useBoardManager } from './hooks/useBoardManager';
 import { usePageSelector } from './hooks/usePageSelector';
 import { useShareDialog } from './hooks/useShareDialog';
 import { useDynamicPositioning } from './hooks/useDynamicPositioning';
 
-/* 1 · Custom tools + shapes */
-export const getCustomShapeUtils = () => [ChatShapeUtil];
-const customTools = [chatTool];
+// Import Components
+import { SyncedTldrawCanvas } from './SyncedTldrawCanvas';
+import { CanvasUI } from './CanvasUI';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 
-/* 2 · Add Chat button to the toolbar */
+// Constants for Tldraw setup - define these outside the component
 const uiOverrides: TLUiOverrides = {
   tools(editor, tools) {
     tools.chat = {
-      id: 'chat',
-      icon: 'chat-icon',
-      label: 'Chat',
-      kbd: 'c',
-      onSelect: () => editor.setCurrentTool('chat'),
+      id: "chat",
+      icon: "chat-icon",
+      label: "Chat",
+      kbd: "c",
+      onSelect: () => editor.setCurrentTool("chat"),
     };
     return tools;
   },
 };
 
-/* ----------  🔍  THIS BLOCK IS THE IMPORTANT BIT  ---------- */
-const Toolbar: TLComponents['Toolbar'] = (props) => {
-  const tools = useTools();
-  const isChatSelected = useIsToolSelected(tools.chat);
-
-  return (
-    <DefaultToolbar {...props}>
-      {tools.chat && (
-        <TldrawUiMenuItem {...tools.chat} isSelected={isChatSelected} />
-      )}
-      <DefaultToolbarContent />
-    </DefaultToolbar>
-  );
-};
-/* ----------------------------------------------------------- */
-
-const components: TLComponents = {
-  Toolbar,
+// Define static components outside the component to prevent recreation
+const staticComponents: TLComponents = {
+  Toolbar: (props) => {
+    const tools = useTools();
+    const isChatSelected = useIsToolSelected(tools.chat);
+    return (
+      <DefaultToolbar {...props}>
+        {tools.chat && <TldrawUiMenuItem {...tools.chat} isSelected={isChatSelected} />}
+        <DefaultToolbarContent />
+      </DefaultToolbar>
+    );
+  },
+  KeyboardShortcutsDialog: (props) => {
+    const tools = useTools();
+    return (
+      <DefaultKeyboardShortcutsDialog {...props}>
+        <DefaultKeyboardShortcutsDialogContent />
+        {tools.chat && <TldrawUiMenuItem {...tools.chat} />}
+      </DefaultKeyboardShortcutsDialog>
+    );
+  },
+  PageMenu: null,
+  MainMenu: DefaultMainMenu,
   DebugPanel: null,
 };
 
-/* 3 · Helper to build sync URL */
-const WORKER_ROOT =
-  (process.env.NEXT_PUBLIC_WORKER_URL ?? 'branc.ajeenkya29.workers.dev').replace(
-    /^(?!https?:)/,
-    'https://',
-  );
-const toRoomUrl = (id: string) =>
-  `${WORKER_ROOT}/connect/${id.replace(/^user-*/, 'user-')}`;
+const customAssetUrls: TLUiAssetUrlOverrides = {
+  icons: {
+    "chat-icon": "/BranchBox.svg",
+  },
+};
 
-/* 4 · Main exported component – unchanged below this line */
+const customTools = [chatTool];
+
+const getFormattedWorkerUrl = () => {
+  const url = process.env.NEXT_PUBLIC_WORKER_URL || "branc.ajeenkya29.workers.dev";
+  return url.startsWith("http") ? url : `https://${url}`;
+};
+const WORKER_URL = getFormattedWorkerUrl();
+
+const getFormattedBoardId = (boardId: string) => {
+  if (!boardId) return '';
+  return boardId.replace(/^(user-)+/, 'user-');
+};
+
+// Define a shared array of shape utils that can be exported and reused
+export const getCustomShapeUtils = () => [ChatShapeUtil, ...defaultShapeUtils];
+
 export function Canvas({ userId }: { userId: string }) {
-  const boardMgr = useBoardManager(userId);
-  const {
-    currentRoom,
-    availableRooms,
-    selectBoard,
-    createNewBoard,
-    renameBoard,
-    ensureBoardIsShareable,
-    isLoading,
-    error,
-  } = boardMgr;
+  const boardManager = useBoardManager(userId);
+  const { isLoading, currentRoom, availableRooms, selectBoard, createNewBoard, renameBoard, ensureBoardIsShareable, error: boardManagerError } = boardManager;
 
-  const pageSelHook = usePageSelector({
-    currentRoom,
-    availableRooms,
-    selectBoard,
-    createNewBoard,
-    renameBoard,
-  });
-  const shareHook = useShareDialog({ currentRoom, ensureBoardIsShareable });
+  const pageSelectorHook = usePageSelector({ currentRoom, availableRooms, selectBoard, createNewBoard, renameBoard });
+  const shareDialogHook = useShareDialog({ currentRoom, ensureBoardIsShareable });
 
-  const tlRef = useRef<HTMLDivElement>(null);
-  const { selectorPosition } = useDynamicPositioning(tlRef);
-
+  const tldrawContainerRef = useRef<HTMLDivElement>(null);
+  const { selectorPosition } = useDynamicPositioning(tldrawContainerRef);
   const [editor, setEditor] = useState<Editor | null>(null);
 
-  const shapeUtils = useMemo(
-    () => [...defaultShapeUtils, ...getCustomShapeUtils()],
-    [],
-  );
+  // IMPORTANT: Always use a memoized version of complex objects/arrays
+  const customShapeUtilsArray = useMemo(() => getCustomShapeUtils(), []);
 
-  if (isLoading)
-    return <div className="flex h-screen items-center justify-center">Loading…</div>;
-  if (!currentRoom || error)
+  const syncUri = useMemo(() => {
+    if (!currentRoom || !currentRoom.id) return '';
+    const formattedId = getFormattedBoardId(currentRoom.id);
+    return `${WORKER_URL}/connect/${formattedId}`;
+  }, [currentRoom]);
+
+  // Early returns for loading states and errors
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-screen">Loading Canvas Data...</div>;
+  }
+  
+  if (boardManagerError) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        {error ?? 'No board selected'}
+      <div className="flex items-center justify-center h-screen">
+        <Alert variant="destructive" className="max-w-md">
+          <AlertTitle>Error Loading Boards</AlertTitle>
+          <AlertDescription>Could not load board data: {boardManagerError}</AlertDescription>
+          <Button onClick={() => window.location.reload()} className="mt-4">Reload Page</Button>
+        </Alert>
       </div>
     );
+  }
+  
+  if (!currentRoom || !syncUri) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Alert variant="destructive" className="max-w-md">
+          <AlertTitle>Initialization Error</AlertTitle>
+          <AlertDescription>Board not available or sync URI could not be determined.</AlertDescription>
+          <Button onClick={() => window.location.reload()} className="mt-4">Reload Page</Button>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
     <SyncedTldrawCanvas
       key={currentRoom.id}
-      syncUri={toRoomUrl(currentRoom.id)}
+      syncUri={syncUri}
       initialCurrentRoomName={currentRoom.name}
       initialCurrentRoomId={currentRoom.id}
       editorInstance={editor}
       onEditorMount={setEditor}
+      customShapeUtils={customShapeUtilsArray} // Pass the shape utils from parent
     >
-      {(store: TLStoreWithStatus) => (
+      {(store: TLStoreWithStatus, _editorFromSync: Editor | null, _onEditorMountFromSync: (editor: Editor) => void) => (
         <CanvasUI
           userId={userId}
           store={store}
-          shapeUtils={shapeUtils}
+          shapeUtils={customShapeUtilsArray} // Pass the memoized array
           tools={customTools}
           overrides={uiOverrides}
-          components={components}
-          assetUrls={{ icons: { 'chat-icon': '/BranchBox.svg' } }}
+          components={staticComponents}
+          assetUrls={customAssetUrls}
           editor={editor}
           onEditorMount={setEditor}
-          tldrawContainerRef={tlRef}
+          tldrawContainerRef={tldrawContainerRef}
           selectorPosition={selectorPosition}
-          boardManager={boardMgr}
-          pageSelectorHook={pageSelHook}
-          shareDialogHook={shareHook}
+          boardManager={boardManager}
+          pageSelectorHook={pageSelectorHook}
+          shareDialogHook={shareDialogHook}
         />
       )}
     </SyncedTldrawCanvas>
