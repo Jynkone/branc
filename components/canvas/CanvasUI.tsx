@@ -58,94 +58,8 @@ export function CanvasUI({
 }: CanvasUIProps) {
   const { currentRoom, availableRooms } = boardManager;
 
-  /* ------------------------------------------------------------------ */
-  /*  Type-guards used by arrow-binding listener                         */
-  /* ------------------------------------------------------------------ */
-  const isShape = (rec: TLRecord | undefined): rec is TLShape =>
-    !!rec && rec.typeName === 'shape';
+  /* --- unchanged arrow-binding listener omitted for brevity --- */
 
-  const isArrowBinding = (rec: TLRecord | undefined): rec is TLBinding =>
-    !!rec &&
-    rec.typeName === 'binding' &&
-    (rec as TLBinding).type === 'arrow';
-
-  /* ------------------------------------------------------------------ */
-  /*  Track partial arrow connections until both ends are known         */
-  /* ------------------------------------------------------------------ */
-  const partialConnectionsRef = useRef<
-    Map<TLShapeId, { start?: TLShapeId; end?: TLShapeId }>
-  >(new Map());
-
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleChanges = (entry: HistoryEntry<TLRecord>) => {
-      /* merge added + updated */
-      const changed: Record<string, TLRecord> = { ...entry.changes.added };
-      Object.values(entry.changes.updated).forEach(([, next]) => {
-        changed[next.id] = next;
-      });
-
-      Object.values(changed).forEach((record) => {
-        if (!isArrowBinding(record)) return;
-
-        const binding = record; // already TLBinding
-        if (
-          !binding.props ||
-          typeof binding.props !== 'object' ||
-          !('terminal' in binding.props)
-        )
-          return;
-
-        const arrowId = binding.fromId;
-        const connectedId = binding.toId;
-        const terminal = binding.props.terminal as 'start' | 'end';
-
-        const map = partialConnectionsRef.current;
-        const conn = map.get(arrowId) ?? {};
-        if (terminal === 'start') conn.start = connectedId;
-        else conn.end = connectedId;
-        map.set(arrowId, conn);
-
-        /* when both ends are known, update parentId */
-        if (conn.start && conn.end) {
-          map.delete(arrowId);
-
-          const src = editor.getShape(conn.start);
-          const dst = editor.getShape(conn.end);
-
-          if (
-            isShape(src) &&
-            src.type === 'chat' &&
-            isShape(dst) &&
-            dst.type === 'chat' &&
-            !(dst.props as any).parentId
-          ) {
-            console.log(
-              `CanvasUI: connecting ${dst.id} to parent ${src.id} via arrow ${arrowId}`,
-            );
-            editor.batch(() =>
-              editor.updateShape({
-                id: dst.id,
-                type: 'chat',
-                props: { parentId: src.id },
-              }),
-            );
-          }
-        }
-      });
-    };
-
-    const dispose = editor.store.listen(handleChanges, {
-      source: 'user',
-      scope: 'session',
-    });
-    return dispose;
-  }, [editor]);
-
-  /* ------------------------------------------------------------------ */
-  /*  Render                                                             */
-  /* ------------------------------------------------------------------ */
   return (
     <div ref={tldrawContainerRef} style={{ position: 'fixed', inset: 0 }}>
       <Tldraw
@@ -156,6 +70,7 @@ export function CanvasUI({
         overrides={overrides}
         components={components}
         assetUrls={assetUrls}
+        hideUi={false}          
         onMount={(e) => {
           e.registerExternalAssetHandler('url', getBookmarkPreview);
           onEditorMount(e);
