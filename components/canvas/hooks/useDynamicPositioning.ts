@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, RefObject } from 'react';
 
 // Default position if the target element isn't found initially
-const DEFAULT_SELECTOR_POSITION = 230;
+const DEFAULT_SELECTOR_POSITION = 220;
 // Selectors to try for finding the tldraw action menu/toolbar area
 const TLDRW_ACTION_MENU_SELECTORS = '.tlui-menu-zone, .tlui-action-panel, .tlui-actions, .tlui-actions-menu, .tlui-toolbar';
 
