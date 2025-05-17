@@ -4,7 +4,7 @@ import { TLShape } from '@tldraw/tlschema';
 
 interface UseManageChatShapeInternalProps {
   shape: ChatShape;
-  editor: any; // Consider defining a more specific type for editor if possible
+  editor: any; // You can tighten this up later with your exact editor type
 }
 
 interface UseManageChatShapeInternalReturn {
@@ -19,38 +19,37 @@ interface UseManageChatShapeInternalReturn {
   isInConversation: boolean;
 }
 
-export function useManageChatShapeInternal({ shape, editor }: UseManageChatShapeInternalProps): UseManageChatShapeInternalReturn {
+export function useManageChatShapeInternal({
+  shape,
+  editor,
+}: UseManageChatShapeInternalProps): UseManageChatShapeInternalReturn {
   const [localPrompt, setLocalPrompt] = useState(shape.props.prompt);
   const [localResponse, setLocalResponse] = useState(shape.props.response);
   const [isLoading, setIsLoading] = useState(false);
-  const [localIsEditing, setLocalIsEditing] = useState(shape.props.isEditing);
+  // purely local edit-mode flag
+  const [localIsEditing, setLocalIsEditing] = useState(false);
   const [isInConversation, setIsInConversation] = useState(false);
 
-  // Sync local state with shape props
+  // 1️⃣ Keep prompt in sync when updated remotely
   useEffect(() => {
     setLocalPrompt(shape.props.prompt);
   }, [shape.props.prompt]);
 
+  // 2️⃣ Update response unless the user is currently editing locally
   useEffect(() => {
-    // Only update localResponse from props if not currently editing
     if (!localIsEditing) {
       setLocalResponse(shape.props.response);
     }
   }, [shape.props.response, localIsEditing]);
 
+  // 3️⃣ Figure out if this shape is in a conversation thread
   useEffect(() => {
-    setLocalIsEditing(shape.props.isEditing);
-  }, [shape.props.isEditing]);
-
-  // Determine if the shape is part of a conversation thread
-  useEffect(() => {
-    const hasParent = shape.props.parentId && shape.props.parentId !== "";
-    // Check if any shape on the current page has this shape's ID as its parentId
-    const hasChildren = editor.getCurrentPageShapes().some((s: TLShape) =>
-      s.type === "chat" && (s as ChatShape).props.parentId === shape.id
-    );
+    const hasParent = !!shape.props.parentId;
+    const hasChildren = editor
+      .getCurrentPageShapes()
+      .some((s: TLShape) => s.type === 'chat' && (s as ChatShape).props.parentId === shape.id);
     setIsInConversation(hasParent || hasChildren);
-  }, [shape.id, shape.props.parentId, editor]); // Re-run if shape ID, parentId, or editor instance changes
+  }, [shape.id, shape.props.parentId, editor]);
 
   return {
     localPrompt,
