@@ -102,7 +102,7 @@ export function PageSelector({
       {isMenuOpen && (
         <div ref={menuRef} className="tldraw-pages-menu">
           <div className="tldraw-pages-menu-header">
-            <span>Pages</span>
+            <span>Boards</span>
             <div className="tldraw-pages-menu-actions">
               <button onClick={(e) => { e.stopPropagation(); handleNewBoard(); }} className="tldraw-icon-button" aria-label="Create new page">
                 <Plus size={14} />
