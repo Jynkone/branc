@@ -1,5 +1,11 @@
-// components/canvas/hooks/usePageSelector.ts
-import { useState, useEffect, useRef, useCallback, Dispatch, SetStateAction } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  Dispatch,
+  SetStateAction,
+} from 'react';
 import type { RoomData } from './useBoardManager';
 
 interface UsePageSelectorProps {
@@ -8,6 +14,7 @@ interface UsePageSelectorProps {
   selectBoard: (boardId: string) => void;
   createNewBoard: () => Promise<RoomData | null>;
   renameBoard: (boardId: string, newName: string) => void;
+  deleteBoard: (boardId: string) => Promise<void>;
 }
 
 export function usePageSelector({
@@ -16,9 +23,11 @@ export function usePageSelector({
   selectBoard,
   createNewBoard,
   renameBoard,
+  deleteBoard,
 }: UsePageSelectorProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+  const [editingBoardId, setEditingBoardId] =
+    useState<string | null>(null);
   const [newBoardName, setNewBoardName] = useState('');
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -26,35 +35,26 @@ export function usePageSelector({
   const boardButtonRef = useRef<HTMLButtonElement>(null);
 
   const toggleMenu = useCallback(() => {
-    setIsMenuOpen(prev => {
-      if (!prev) { 
-        setEditingBoardId(null); 
-      } else { 
-        setEditingBoardId(null); 
-      }
+    setIsMenuOpen((prev) => {
+      setEditingBoardId(null);
       return !prev;
     });
-  }, []); 
+  }, []);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (
-        menuRef.current &&
-        !menuRef.current.contains(event.target as Node) &&
-        boardButtonRef.current &&
-        !boardButtonRef.current.contains(event.target as Node)
+        menuRef.current?.contains(e.target as Node) ||
+        boardButtonRef.current?.contains(e.target as Node)
       ) {
-        setIsMenuOpen(false);
-        setEditingBoardId(null);
+        return;
       }
+      setIsMenuOpen(false);
+      setEditingBoardId(null);
     };
-
     if (isMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-    } else {
-      document.removeEventListener('mousedown', handleClickOutside);
     }
-
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
@@ -67,10 +67,13 @@ export function usePageSelector({
     }
   }, [editingBoardId]);
 
-  const handleStartEditingListItem = useCallback((board: RoomData) => {
-    setEditingBoardId(board.id);
-    setNewBoardName(board.name);
-  }, []); 
+  const handleStartEditingListItem = useCallback(
+    (board: RoomData) => {
+      setEditingBoardId(board.id);
+      setNewBoardName(board.name);
+    },
+    []
+  );
 
   const handleSaveName = useCallback(() => {
     if (!editingBoardId || !newBoardName.trim()) {
@@ -81,14 +84,16 @@ export function usePageSelector({
     setEditingBoardId(null);
   }, [editingBoardId, newBoardName, renameBoard]);
 
-  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      handleSaveName();
-    } else if (e.key === 'Escape') {
-      setEditingBoardId(null);
-      setNewBoardName('');
-    }
-  }, [handleSaveName]); 
+  const handleInputKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') handleSaveName();
+      else if (e.key === 'Escape') {
+        setEditingBoardId(null);
+        setNewBoardName('');
+      }
+    },
+    [handleSaveName]
+  );
 
   const handleInputBlur = useCallback(() => {
     handleSaveName();
@@ -98,25 +103,39 @@ export function usePageSelector({
     try {
       await createNewBoard();
       setEditingBoardId(null);
-    } catch (error) {
-      console.error("Error creating new board from PageSelector:", error);
+    } catch (err) {
+      console.error('Error creating board:', err);
     }
   }, [createNewBoard]);
 
-  const handleSelectBoard = useCallback((boardId: string) => {
-    if (editingBoardId === boardId) return;
-    selectBoard(boardId);
-    setIsMenuOpen(false);
-    setEditingBoardId(null);
-  }, [selectBoard, editingBoardId]);
+  const handleSelectBoard = useCallback(
+    (boardId: string) => {
+      if (editingBoardId === boardId) return;
+      selectBoard(boardId);
+      setEditingBoardId(null);
+      setIsMenuOpen(false);
+    },
+    [selectBoard, editingBoardId]
+  );
+
+  // KEEP MENU OPEN on delete
+  const handleDeleteBoard = useCallback(
+    async (boardId: string) => {
+      try {
+        await deleteBoard(boardId);
+        // no setIsMenuOpen(false)
+      } catch (err) {
+        console.error('Error deleting board:', err);
+      }
+    },
+    [deleteBoard]
+  );
 
   return {
     isMenuOpen,
     editingBoardId,
     newBoardName,
     setNewBoardName,
-    setIsMenuOpen,
-    setEditingBoardId,
     toggleMenu,
     handleStartEditingListItem,
     handleSaveName,
@@ -124,6 +143,7 @@ export function usePageSelector({
     handleInputBlur,
     handleNewBoard,
     handleSelectBoard,
+    handleDeleteBoard,
     menuRef,
     boardNameInputRef,
     boardButtonRef,

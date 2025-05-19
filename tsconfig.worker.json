@@ -1,15 +1,27 @@
 {
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-      "target": "ES2020",
-      "lib": ["ES2020"],
-      "module": "ES2020",
-      "moduleResolution": "node",
-      "types": ["@cloudflare/workers-types"],
-      "allowSyntheticDefaultImports": true,
-      "skipLibCheck": true,
-      "isolatedModules": true,
-      "noEmit": true
-    },
-    "include": ["worker/**/*.ts", "cloudflare.d.ts"]
-  }
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    // Recommendation: Add "webworker" to explicitly define the JS environment
+    // and help differentiate from the "dom" lib in the base tsconfig.
+    "lib": ["ES2020", "webworker"],
+    "module": "ES2020",
+    "moduleResolution": "node",
+    // This is the most important line for Cloudflare Worker types
+    "types": ["@cloudflare/workers-types"],
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    // Remove "jsx" if not used in worker, or set to "react-jsx" if using JSX transform for some reason.
+    // Inherited "jsx": "preserve" from base might be okay if no JSX in worker, but explicit is better.
+    // For workers, typically no JSX is involved directly.
+    // If you are NOT using JSX in your worker files, you can remove the "jsx" line below
+    // or set it to a more appropriate value if needed (though unlikely for typical workers).
+    // For now, I'll let it inherit or you can explicitly set it if needed.
+    // "jsx": "react-jsx" // Or remove if no JSX in worker code
+  },
+  "include": ["worker/**/*.ts", "cloudflare.d.ts"]
+  // "exclude" is inherited from the base tsconfig.json, which is usually fine.
+  // No need to re-declare "node_modules" here unless you want to override.
+}

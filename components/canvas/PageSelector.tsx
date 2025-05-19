@@ -1,6 +1,12 @@
-// components/canvas/PageSelector.tsx
-import React, { useCallback, Dispatch, SetStateAction, useRef } from 'react'; // Added useRef
-import { Check, Plus, Save, X, Share2 as ShareIcon } from 'lucide-react';
+import React, { useCallback, useRef } from 'react';
+import {
+  Check,
+  Plus,
+  Save,
+  X,
+  Share2 as ShareIcon,
+  Trash2 as DeleteIcon,
+} from 'lucide-react';
 import type { RoomData } from './hooks/useBoardManager';
 import type { usePageSelector } from './hooks/usePageSelector';
 import type { useShareDialog } from './hooks/useShareDialog';
@@ -10,9 +16,7 @@ import { cn } from '@/lib/utils';
 interface PageSelectorProps {
   currentRoom: RoomData | null;
   availableRooms: RoomData[];
-  pageSelectorHook: ReturnType<typeof usePageSelector> & {
-    setEditingBoardId: Dispatch<SetStateAction<string | null>>;
-  };
+  pageSelectorHook: ReturnType<typeof usePageSelector>;
   shareDialogHook: ReturnType<typeof useShareDialog>;
 }
 
@@ -27,8 +31,6 @@ export function PageSelector({
     editingBoardId,
     newBoardName,
     setNewBoardName,
-    setIsMenuOpen,
-    setEditingBoardId,
     toggleMenu,
     handleStartEditingListItem,
     handleSaveName,
@@ -36,158 +38,167 @@ export function PageSelector({
     handleInputBlur,
     handleNewBoard,
     handleSelectBoard,
+    handleDeleteBoard,
     menuRef,
     boardNameInputRef,
     boardButtonRef,
   } = pageSelectorHook;
 
-  // Ref to manage click timing for double click detection
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleShareSpecificBoard = useCallback((event: React.MouseEvent, roomToShare: RoomData) => {
-    event.stopPropagation();
-    if (clickTimeoutRef.current) { // Clear any pending single click action
-      clearTimeout(clickTimeoutRef.current);
-      clickTimeoutRef.current = null;
-    }
-    // Proceed with sharing logic
-    if (currentRoom?.id !== roomToShare.id) {
-      handleSelectBoard(roomToShare.id);
-      setTimeout(() => {
-        shareDialogHook.handleOpenShareDialog();
-      }, 50);
-    } else {
-      shareDialogHook.handleOpenShareDialog();
-    }
-    setIsMenuOpen(false);
-  }, [currentRoom, handleSelectBoard, shareDialogHook, setIsMenuOpen]);
-
-
-  const handleItemInteraction = (room: RoomData) => {
-    if (editingBoardId === room.id) return; // Already editing this one, do nothing
-
-    if (clickTimeoutRef.current) {
-      // This is a double click
-      clearTimeout(clickTimeoutRef.current);
-      clickTimeoutRef.current = null;
-      if (editingBoardId !== room.id) { // Ensure not already editing another
-        handleStartEditingListItem(room);
-      }
-    } else {
-      // This is the first click, set a timeout
-      clickTimeoutRef.current = setTimeout(() => {
-        // If timeout runs, it's a single click
-        if (editingBoardId !== room.id) { // Check again in case state changed
-           handleSelectBoard(room.id); // This also closes the menu via the hook
-        }
+  const handleShareSpecificBoard = useCallback(
+    (e: React.MouseEvent, room: RoomData) => {
+      e.stopPropagation();
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
         clickTimeoutRef.current = null;
-      }, 250); // 250ms window for double click
-    }
-  };
+      }
+      if (currentRoom?.id !== room.id) {
+        handleSelectBoard(room.id);
+        setTimeout(() => shareDialogHook.handleOpenShareDialog(), 50);
+      } else {
+        shareDialogHook.handleOpenShareDialog();
+      }
+      // menu stays open
+    },
+    [currentRoom, handleSelectBoard, shareDialogHook]
+  );
 
+  const handleItemInteraction = useCallback(
+    (room: RoomData) => {
+      if (editingBoardId === room.id) return;
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+        handleStartEditingListItem(room);
+      } else {
+        clickTimeoutRef.current = setTimeout(() => {
+          handleSelectBoard(room.id);
+          clickTimeoutRef.current = null;
+        }, 250);
+      }
+    },
+    [editingBoardId, handleStartEditingListItem, handleSelectBoard]
+  );
+
+  const onlyOne = availableRooms.length <= 1;
 
   return (
     <div className="tldraw-page-selector">
       <button
         ref={boardButtonRef}
-        onClick={toggleMenu} // This toggles the main dropdown
+        onClick={toggleMenu}
         className="tldraw-page-button h-8"
-        aria-expanded={isMenuOpen}
         aria-haspopup="true"
-        aria-controls="pages-menu-list"
+        aria-expanded={isMenuOpen}
       >
-        <span className="truncate max-w-[120px] sm:max-w-[150px]">{currentRoom?.name || "Loading..."}</span>
+        <span className="truncate max-w-[120px] sm:max-w-[150px]">
+          {currentRoom?.name || 'Loading...'}
+        </span>
       </button>
 
       {isMenuOpen && (
         <div ref={menuRef} className="tldraw-pages-menu">
           <div className="tldraw-pages-menu-header">
             <span>Boards</span>
-            <div className="tldraw-pages-menu-actions">
-              <button onClick={(e) => { e.stopPropagation(); handleNewBoard(); }} className="tldraw-icon-button" aria-label="Create new page">
-                <Plus size={14} />
-              </button>
-            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNewBoard();
+              }}
+              className="tldraw-icon-button"
+              aria-label="New page"
+            >
+              <Plus size={14} />
+            </button>
           </div>
-          <div id="pages-menu-list" className="tldraw-pages-menu-list">
+
+          <div className="tldraw-pages-menu-list">
             {availableRooms.map((room) => (
               <div
                 key={room.id}
                 className={cn(
-                  "tldraw-page-list-item-row",
-                  currentRoom?.id === room.id && !editingBoardId && "selected",
-                  editingBoardId === room.id && "editing"
+                  'tldraw-page-list-item-row',
+                  currentRoom?.id === room.id && !editingBoardId && 'selected',
+                  editingBoardId === room.id && 'editing'
                 )}
                 onClick={(e) => {
-                  e.stopPropagation(); // Prevent event bubbling
-                  if (editingBoardId !== room.id) {
-                    handleItemInteraction(room);
-                  }
-                  // If editing this item, click on row does nothing to avoid conflicts with input click
+                  e.stopPropagation();
+                  if (!editingBoardId) handleItemInteraction(room);
                 }}
-                // onDoubleClick is now handled by the custom handleItemInteraction
-                role="button" // The row acts as a button
-                aria-pressed={currentRoom?.id === room.id && !editingBoardId}
+                role="button"
                 tabIndex={editingBoardId === room.id ? -1 : 0}
-                onKeyDown={(e) => {
-                  if (editingBoardId !== room.id) {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handleSelectBoard(room.id);
-                    } else if (e.key === 'F2') {
-                      e.preventDefault();
-                      handleStartEditingListItem(room);
-                    }
-                  }
-                }}
               >
                 {editingBoardId === room.id ? (
-                  // Editing State
                   <div className="tldraw-page-list-item-edit-container">
                     <input
                       ref={boardNameInputRef}
-                      type="text"
                       value={newBoardName}
                       onChange={(e) => setNewBoardName(e.target.value)}
                       onKeyDown={handleInputKeyDown}
                       onBlur={handleInputBlur}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => e.stopPropagation()}
                       className="tldraw-page-list-item-input"
                       aria-label={`Edit name for ${room.name}`}
                     />
                     <Button
-                      variant="ghost" size="icon"
-                      onClick={(e) => { e.stopPropagation(); handleSaveName(); }}
-                      className="tldraw-edit-action-button" aria-label="Save name"
-                    ><Save size={14}/></Button>
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSaveName();
+                      }}
+                      aria-label="Save"
+                    >
+                      <Save size={14} />
+                    </Button>
                     <Button
-                      variant="ghost" size="icon"
-                      onClick={(e) => { e.stopPropagation(); setEditingBoardId(null); setNewBoardName(''); }}
-                      className="tldraw-edit-action-button" aria-label="Cancel editing"
-                    ><X size={14}/></Button>
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNewBoardName('');
+                        handleStartEditingListItem({ ...room, name: '' });
+                      }}
+                      aria-label="Cancel"
+                    >
+                      <X size={14} />
+                    </Button>
                   </div>
                 ) : (
-                  // Default Display State
                   <>
                     <div className="tldraw-page-list-item-check-container">
-                      {currentRoom?.id === room.id && (
-                        <Check size={14} className="tldraw-check-icon" />
-                      )}
+                      {currentRoom?.id === room.id && <Check size={14} />}
                     </div>
-                    <span
-                      className="tldraw-page-list-item-name"
-                      // onClick and onDoubleClick are now handled by the parent row div's onClick with custom logic
-                    >
+                    <span className="tldraw-page-list-item-name">
                       {room.name}
                     </span>
                     <Button
-                      variant="ghost" size="icon"
+                      variant="ghost"
+                      size="icon"
+                      className="text-gray-500 hover:text-red-500"
                       onClick={(e) => handleShareSpecificBoard(e, room)}
-                      className="tldraw-page-list-item-share-button"
                       aria-label={`Share ${room.name}`}
-                      tabIndex={0}
-                    ><ShareIcon size={14} /></Button>
+                    >
+                      <ShareIcon size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'hover:text-red-500',
+                        onlyOne
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-gray-500'
+                      )}
+                      disabled={onlyOne}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!onlyOne) handleDeleteBoard(room.id);
+                      }}
+                      aria-label={`Delete ${room.name}`}
+                    >
+                      <DeleteIcon size={14} />
+                    </Button>
                   </>
                 )}
               </div>

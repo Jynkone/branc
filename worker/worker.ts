@@ -267,6 +267,29 @@ router.get('/connect/:roomId', (request: IRequest, env: Environment, ctx: Execut
     }
 });
 
+router.delete('/api/boards/:boardId', withAuth, async (request, env) => {
+  const userId = request.userId!;
+  const boardId = request.params.boardId!;
+  console.log(`[Worker] DELETE /api/boards/${boardId} for userId: ${userId}`);
+
+  // Fetch existing
+  const boards = await getUserBoards(env.BOARD_METADATA, userId);
+  const board = boards.find((b) => b.id === boardId);
+
+  if (!board) {
+    return error(404, 'Not Found: Board does not exist');
+  }
+  if (board.owner !== userId && userId !== 'anonymous-dev-user') {
+    return error(403, 'Forbidden: You do not own this board');
+  }
+
+  // Remove
+  const next = boards.filter((b) => b.id !== boardId);
+  await saveUserBoards(env.BOARD_METADATA, userId, next);
+  console.log(`[Worker] Deleted board ${boardId}`);
+  return json({ success: true });
+});
+
 // --- Other Existing Routes ---
 router.post('/uploads/:uploadId', handleAssetUpload)
   .get('/uploads/:uploadId', handleAssetDownload)

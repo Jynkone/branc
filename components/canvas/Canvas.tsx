@@ -1,4 +1,3 @@
-// components/canvas/Canvas.tsx
 "use client";
 
 import React, { useMemo, useState, useRef } from 'react';
@@ -26,8 +25,6 @@ import { ChatShapeUtil } from "@/components/chatshape/ChatShapeUtil";
 import { useBoardManager } from './hooks/useBoardManager';
 import { usePageSelector } from './hooks/usePageSelector';
 import { useShareDialog } from './hooks/useShareDialog';
-// useDynamicPositioning is removed if selectorPosition is not used
-// import { useDynamicPositioning } from './hooks/useDynamicPositioning'; 
 
 import { SyncedTldrawCanvas } from './SyncedTldrawCanvas';
 import { CanvasUI } from './CanvasUI';
@@ -95,40 +92,55 @@ export const getCustomShapeUtils = () => [ChatShapeUtil, ...defaultShapeUtils];
 
 export function Canvas({ userId }: { userId: string }) {
   const boardManager = useBoardManager(userId);
-  const { isLoading, currentRoom, availableRooms, selectBoard, createNewBoard, renameBoard, ensureBoardIsShareable, error: boardManagerError } = boardManager;
+  const {
+    isLoading,
+    currentRoom,
+    availableRooms,
+    selectBoard,
+    createNewBoard,
+    renameBoard,
+    deleteBoard,            // ← Destructure deleteBoard
+    ensureBoardIsShareable,
+    error: boardManagerError,
+  } = boardManager;
 
-  const pageSelectorHook = usePageSelector({ currentRoom, availableRooms, selectBoard, createNewBoard, renameBoard });
+  const pageSelectorHook = usePageSelector({
+    currentRoom,
+    availableRooms,
+    selectBoard,
+    createNewBoard,
+    renameBoard,
+    deleteBoard,            // ← Pass it here
+  });
+
   const shareDialogHook = useShareDialog({ currentRoom, ensureBoardIsShareable });
 
   const tldrawContainerRef = useRef<HTMLDivElement>(null);
-  // selectorPosition is removed if not used
-  // const { selectorPosition } = useDynamicPositioning(tldrawContainerRef); 
   const [editor, setEditor] = useState<Editor | null>(null);
 
   const customShapeUtilsArray = useMemo(() => getCustomShapeUtils(), []);
 
   const syncUri = useMemo(() => {
-    if (!currentRoom || !currentRoom.id) return '';
-    const formattedId = getFormattedBoardId(currentRoom.id);
-    return `${WORKER_URL}/connect/${formattedId}`;
+    if (!currentRoom?.id) return '';
+    return `${WORKER_URL}/connect/${getFormattedBoardId(currentRoom.id)}`;
   }, [currentRoom]);
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen">Loading Canvas Data...</div>;
   }
-  
+
   if (boardManagerError) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Alert variant="destructive" className="max-w-md">
           <AlertTitle>Error Loading Boards</AlertTitle>
-          <AlertDescription>Could not load board data: {boardManagerError}</AlertDescription>
+          <AlertDescription>{boardManagerError}</AlertDescription>
           <Button onClick={() => window.location.reload()} className="mt-4">Reload Page</Button>
         </Alert>
       </div>
     );
   }
-  
+
   if (!currentRoom || !syncUri) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -151,19 +163,18 @@ export function Canvas({ userId }: { userId: string }) {
       onEditorMount={setEditor}
       customShapeUtils={customShapeUtilsArray}
     >
-      {(store: TLStoreWithStatus, _editorFromSync: Editor | null, _onEditorMountFromSync: (editor: Editor) => void) => (
+      {(_store: TLStoreWithStatus) => (
         <CanvasUI
           userId={userId}
-          store={store}
+          store={_store}
           shapeUtils={customShapeUtilsArray}
           tools={customTools}
           overrides={uiOverrides}
           components={staticComponents}
           assetUrls={customAssetUrls}
-          editor={editor} // Pass the editor state here
-          onEditorMount={setEditor} // Allow CanvasUI to also call onEditorMount if it needs to
+          editor={editor}
+          onEditorMount={setEditor}
           tldrawContainerRef={tldrawContainerRef}
-          // selectorPosition={selectorPosition} // Removed
           boardManager={boardManager}
           pageSelectorHook={pageSelectorHook}
           shareDialogHook={shareDialogHook}
